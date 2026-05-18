@@ -896,6 +896,8 @@ func (r *Relay) apiCreateProfile(w http.ResponseWriter, req *http.Request) {
 		VaultPaths   string `json:"vault_paths"`
 		AllowedTools string `json:"allowed_tools"`
 		PoolSize     int    `json:"pool_size"`
+		ReportsTo    string `json:"reports_to"`
+		IsExecutive  bool   `json:"is_executive"`
 	}
 	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 		apiError(w, http.StatusBadRequest, "invalid JSON", err)
@@ -915,6 +917,13 @@ func (r *Relay) apiCreateProfile(w http.ResponseWriter, req *http.Request) {
 	}
 	if body.PoolSize > 0 {
 		opts = append(opts, db.WithPoolSize(body.PoolSize))
+	}
+	if body.ReportsTo != "" {
+		rt := body.ReportsTo
+		opts = append(opts, db.WithReportsTo(&rt))
+	}
+	if body.IsExecutive {
+		opts = append(opts, db.WithIsExecutive(true))
 	}
 
 	profile, err := r.DB.RegisterProfile(body.Project, body.Slug, body.Name, body.Role, body.ContextPack, body.SoulKeys, body.Skills, body.VaultPaths, opts...)
@@ -945,6 +954,8 @@ func (r *Relay) apiUpdateProfile(w http.ResponseWriter, req *http.Request, path 
 		VaultPaths   string `json:"vault_paths"`
 		AllowedTools string `json:"allowed_tools"`
 		PoolSize     int    `json:"pool_size"`
+		ReportsTo    string `json:"reports_to"`
+		IsExecutive  bool   `json:"is_executive"`
 	}
 	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 		apiError(w, http.StatusBadRequest, "invalid JSON", err)
@@ -957,6 +968,13 @@ func (r *Relay) apiUpdateProfile(w http.ResponseWriter, req *http.Request, path 
 	}
 	if body.PoolSize > 0 {
 		opts = append(opts, db.WithPoolSize(body.PoolSize))
+	}
+	if body.ReportsTo != "" {
+		rt := body.ReportsTo
+		opts = append(opts, db.WithReportsTo(&rt))
+	}
+	if body.IsExecutive {
+		opts = append(opts, db.WithIsExecutive(true))
 	}
 
 	profile, err := r.DB.RegisterProfile(project, slug, body.Name, body.Role, body.ContextPack, body.SoulKeys, body.Skills, body.VaultPaths, opts...)
