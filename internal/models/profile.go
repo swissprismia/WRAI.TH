@@ -11,6 +11,8 @@ type Profile struct {
 	VaultPaths   string  `json:"vault_paths"`   // JSON array of glob patterns
 	AllowedTools string  `json:"allowed_tools"` // JSON array of tool patterns
 	PoolSize     int     `json:"pool_size"`     // Max concurrent spawns for this profile
+	ReportsTo    *string `json:"reports_to,omitempty"`
+	IsExecutive  bool    `json:"is_executive"`
 	Project      string  `json:"project"`
 	OrgID        *string `json:"org_id,omitempty"`
 	CreatedAt    string  `json:"created_at"`

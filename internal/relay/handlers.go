@@ -1103,6 +1103,8 @@ func (h *Handlers) HandleRegisterProfile(ctx context.Context, req mcp.CallToolRe
 	vaultPaths := normalizeJSONArrayParam(req, "vault_paths")
 	allowedTools := normalizeJSONArrayParam(req, "allowed_tools")
 	poolSize := req.GetInt("pool_size", 0)
+	reportsTo := req.GetString("reports_to", "")
+	isExecutive := req.GetBool("is_executive", false)
 
 	var opts []db.ProfileOption
 	if allowedTools != "" && allowedTools != "[]" {
@@ -1110,6 +1112,13 @@ func (h *Handlers) HandleRegisterProfile(ctx context.Context, req mcp.CallToolRe
 	}
 	if poolSize > 0 {
 		opts = append(opts, db.WithPoolSize(poolSize))
+	}
+	if reportsTo != "" {
+		rt := reportsTo
+		opts = append(opts, db.WithReportsTo(&rt))
+	}
+	if isExecutive {
+		opts = append(opts, db.WithIsExecutive(true))
 	}
 
 	profile, err := h.db.RegisterProfile(project, slug, name, role, contextPack, soulKeys, skills, vaultPaths, opts...)

@@ -301,6 +301,8 @@ func registerProfileTool() mcp.Tool {
 		mcp.WithString("vault_paths", mcp.Description("Vault doc path patterns to auto-inject at boot. Accepts JSON string or native array. Supports globs: [\"guides/*.md\"]. {slug} is resolved to the profile slug.")),
 		mcp.WithString("allowed_tools", mcp.Description("Tool patterns this profile can use. JSON array. Examples: [\"mcp__agent-relay__*\",\"Bash\",\"mcp__context7__*\"]. Default: all tools.")),
 		mcp.WithNumber("pool_size", mcp.Description("Max concurrent spawns for this profile (default: 3). Set to 1 for singleton managers like CTO.")),
+		mcp.WithString("reports_to", mcp.Description("Slug of the profile this one reports to in the hierarchy. Empty/omitted means top of chain.")),
+		mcp.WithBoolean("is_executive", mcp.Description("True for executive-tier roles (e.g. CTO). Conventionally pool_size=1.")),
 	)
 }
 

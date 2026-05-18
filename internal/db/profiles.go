@@ -9,11 +9,11 @@ import (
 	"github.com/google/uuid"
 )
 
-const profileColumns = "id, slug, name, role, context_pack, soul_keys, skills, vault_paths, allowed_tools, pool_size, project, org_id, created_at, updated_at"
+const profileColumns = "id, slug, name, role, context_pack, soul_keys, skills, vault_paths, allowed_tools, pool_size, reports_to, is_executive, project, org_id, created_at, updated_at"
 
 func scanProfile(row interface{ Scan(...any) error }) (models.Profile, error) {
 	var p models.Profile
-	err := row.Scan(&p.ID, &p.Slug, &p.Name, &p.Role, &p.ContextPack, &p.SoulKeys, &p.Skills, &p.VaultPaths, &p.AllowedTools, &p.PoolSize, &p.Project, &p.OrgID, &p.CreatedAt, &p.UpdatedAt)
+	err := row.Scan(&p.ID, &p.Slug, &p.Name, &p.Role, &p.ContextPack, &p.SoulKeys, &p.Skills, &p.VaultPaths, &p.AllowedTools, &p.PoolSize, &p.ReportsTo, &p.IsExecutive, &p.Project, &p.OrgID, &p.CreatedAt, &p.UpdatedAt)
 	return p, err
 }
 
@@ -28,6 +28,16 @@ func WithAllowedTools(tools string) ProfileOption {
 // WithPoolSize sets the max concurrent spawns for a profile.
 func WithPoolSize(size int) ProfileOption {
 	return func(p *models.Profile) { p.PoolSize = size }
+}
+
+// WithReportsTo sets the hierarchy parent for a profile. Pass nil to clear.
+func WithReportsTo(reportsTo *string) ProfileOption {
+	return func(p *models.Profile) { p.ReportsTo = reportsTo }
+}
+
+// WithIsExecutive marks the profile as an executive (singleton, top-of-chain).
+func WithIsExecutive(isExec bool) ProfileOption {
+	return func(p *models.Profile) { p.IsExecutive = isExec }
 }
 
 func (d *DB) RegisterProfile(project, slug, name, role, contextPack, soulKeys, skills, vaultPaths string, opts ...ProfileOption) (*models.Profile, error) {
@@ -68,8 +78,8 @@ func (d *DB) RegisterProfile(project, slug, name, role, contextPack, soulKeys, s
 			opt(p)
 		}
 		_, err := d.conn.Exec(
-			"INSERT INTO profiles (id, slug, name, role, context_pack, soul_keys, skills, vault_paths, allowed_tools, pool_size, project, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			p.ID, p.Slug, p.Name, p.Role, p.ContextPack, p.SoulKeys, p.Skills, p.VaultPaths, p.AllowedTools, p.PoolSize, p.Project, p.CreatedAt, p.UpdatedAt,
+			"INSERT INTO profiles (id, slug, name, role, context_pack, soul_keys, skills, vault_paths, allowed_tools, pool_size, reports_to, is_executive, project, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			p.ID, p.Slug, p.Name, p.Role, p.ContextPack, p.SoulKeys, p.Skills, p.VaultPaths, p.AllowedTools, p.PoolSize, p.ReportsTo, p.IsExecutive, p.Project, p.CreatedAt, p.UpdatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("insert profile: %w", err)
@@ -93,8 +103,8 @@ func (d *DB) RegisterProfile(project, slug, name, role, contextPack, soulKeys, s
 	}
 
 	_, err = d.conn.Exec(
-		"UPDATE profiles SET name = ?, role = ?, context_pack = ?, soul_keys = ?, skills = ?, vault_paths = ?, allowed_tools = ?, pool_size = ?, updated_at = ? WHERE slug = ? AND project = ?",
-		existing.Name, existing.Role, existing.ContextPack, existing.SoulKeys, existing.Skills, existing.VaultPaths, existing.AllowedTools, existing.PoolSize, now, slug, project,
+		"UPDATE profiles SET name = ?, role = ?, context_pack = ?, soul_keys = ?, skills = ?, vault_paths = ?, allowed_tools = ?, pool_size = ?, reports_to = ?, is_executive = ?, updated_at = ? WHERE slug = ? AND project = ?",
+		existing.Name, existing.Role, existing.ContextPack, existing.SoulKeys, existing.Skills, existing.VaultPaths, existing.AllowedTools, existing.PoolSize, existing.ReportsTo, existing.IsExecutive, now, slug, project,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("update profile: %w", err)

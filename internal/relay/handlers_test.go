@@ -715,6 +715,44 @@ func TestProfileLifecycle(t *testing.T) {
 	}
 }
 
+func TestProfileHierarchyFields(t *testing.T) {
+	h := testHandlers(t)
+
+	regRes, _ := h.HandleRegisterProfile(ctx, call(map[string]any{
+		"project": "p1", "slug": "cto", "name": "CTO", "role": "executive",
+		"is_executive": true,
+		"pool_size":    1,
+	}))
+	cto := parseJSON(t, regRes)
+	if cto["is_executive"] != true {
+		t.Errorf("expected is_executive=true, got %v", cto["is_executive"])
+	}
+	if cto["reports_to"] != nil {
+		t.Errorf("expected reports_to=nil for top-of-chain, got %v", cto["reports_to"])
+	}
+
+	regRes2, _ := h.HandleRegisterProfile(ctx, call(map[string]any{
+		"project": "p1", "slug": "backend", "name": "Backend Dev", "role": "developer",
+		"reports_to": "cto",
+	}))
+	backend := parseJSON(t, regRes2)
+	if backend["reports_to"] != "cto" {
+		t.Errorf("expected reports_to=cto, got %v", backend["reports_to"])
+	}
+	if backend["is_executive"] != false {
+		t.Errorf("expected is_executive=false default, got %v", backend["is_executive"])
+	}
+
+	// Round-trip via get_profile
+	getRes, _ := h.HandleGetProfile(ctx, call(map[string]any{
+		"project": "p1", "slug": "backend",
+	}))
+	got := parseJSON(t, getRes)
+	if got["reports_to"] != "cto" {
+		t.Errorf("get_profile lost reports_to: got %v", got["reports_to"])
+	}
+}
+
 func TestProfileNotFound(t *testing.T) {
 	h := testHandlers(t)
 	res, _ := h.HandleGetProfile(ctx, call(map[string]any{
