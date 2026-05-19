@@ -120,6 +120,7 @@ func New(database *db.DB, ingester *ingest.Ingester, vaultWatcher *vault.Watcher
 		server.ServerTool{Tool: getProfileTool(), Handler: handlers.HandleGetProfile},
 		server.ServerTool{Tool: listProfilesTool(), Handler: handlers.HandleListProfiles},
 		server.ServerTool{Tool: findProfilesTool(), Handler: handlers.HandleFindProfiles},
+		server.ServerTool{Tool: deleteProfileTool(), Handler: handlers.HandleDeleteProfile},
 		// Task tools
 		server.ServerTool{Tool: dispatchTaskTool(), Handler: handlers.HandleDispatchTask},
 		server.ServerTool{Tool: claimTaskTool(), Handler: handlers.HandleClaimTask},

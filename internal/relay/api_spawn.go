@@ -986,12 +986,47 @@ func (r *Relay) apiUpdateProfile(w http.ResponseWriter, req *http.Request, path 
 }
 
 // DELETE /api/profiles/:slug?project=X
+//
+// Idempotent: returns status="not_found" with HTTP 200 when the profile is missing,
+// so repeated cleanups don't error. Returns HTTP 409 status="in_use" when active
+// agents still reference the profile — deactivate them first.
 func (r *Relay) apiDeleteProfile(w http.ResponseWriter, req *http.Request, path string) {
 	slug := strings.TrimPrefix(path, "/profiles/")
 	slug = strings.TrimSuffix(slug, "/")
 	project := req.URL.Query().Get("project")
 	if project == "" {
 		project = "default"
+	}
+
+	existing, err := r.DB.GetProfile(project, slug)
+	if err != nil {
+		apiError(w, http.StatusInternalServerError, "lookup profile failed", err)
+		return
+	}
+	if existing == nil {
+		writeJSON(w, map[string]any{"slug": slug, "status": "not_found"})
+		return
+	}
+
+	agents, err := r.DB.GetAgentsByProfile(project, slug)
+	if err != nil {
+		apiError(w, http.StatusInternalServerError, "check agents failed", err)
+		return
+	}
+	if len(agents) > 0 {
+		names := make([]string, 0, len(agents))
+		for _, a := range agents {
+			names = append(names, a.Name)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"slug":          slug,
+			"status":        "in_use",
+			"active_agents": names,
+			"hint":          "Deactivate the listed agents (deactivate_agent) before deleting the profile.",
+		})
+		return
 	}
 
 	if err := r.DB.DeleteProfile(project, slug); err != nil {
