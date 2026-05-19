@@ -774,6 +774,86 @@ func TestRegisterProfileMissingFields(t *testing.T) {
 	expectError(t, res2)
 }
 
+func TestDeleteProfileMissingIsIdempotent(t *testing.T) {
+	h := testHandlers(t)
+	res, _ := h.HandleDeleteProfile(ctx, call(map[string]any{
+		"project": "p1", "slug": "ghost",
+	}))
+	data := parseJSON(t, res)
+	if data["status"] != "not_found" {
+		t.Errorf("expected status=not_found, got %v", data["status"])
+	}
+}
+
+func TestDeleteProfileMissingSlug(t *testing.T) {
+	h := testHandlers(t)
+	res, _ := h.HandleDeleteProfile(ctx, call(map[string]any{"project": "p1"}))
+	expectError(t, res)
+}
+
+func TestDeleteProfileHappyPath(t *testing.T) {
+	h := testHandlers(t)
+	_, _ = h.HandleRegisterProfile(ctx, call(map[string]any{
+		"project": "p1", "slug": "backend", "name": "Backend Dev", "role": "developer",
+	}))
+
+	res, _ := h.HandleDeleteProfile(ctx, call(map[string]any{
+		"project": "p1", "slug": "backend",
+	}))
+	data := parseJSON(t, res)
+	if data["status"] != "deleted" {
+		t.Errorf("expected status=deleted, got %v", data["status"])
+	}
+
+	getRes, _ := h.HandleGetProfile(ctx, call(map[string]any{
+		"project": "p1", "slug": "backend",
+	}))
+	expectError(t, getRes)
+}
+
+func TestDeleteProfileBlockedByActiveAgent(t *testing.T) {
+	h := testHandlers(t)
+	_, _ = h.HandleRegisterProfile(ctx, call(map[string]any{
+		"project": "p1", "slug": "backend", "name": "Backend Dev", "role": "developer",
+	}))
+	_, _ = h.HandleRegisterAgent(ctx, call(map[string]any{
+		"project": "p1", "name": "bot-a", "role": "developer", "profile_slug": "backend",
+	}))
+
+	res, _ := h.HandleDeleteProfile(ctx, call(map[string]any{
+		"project": "p1", "slug": "backend",
+	}))
+	data := parseJSON(t, res)
+	if data["status"] != "in_use" {
+		t.Errorf("expected status=in_use with active agent, got %v", data["status"])
+	}
+	agents, ok := data["active_agents"].([]any)
+	if !ok || len(agents) != 1 || agents[0] != "bot-a" {
+		t.Errorf("expected active_agents=[bot-a], got %v", data["active_agents"])
+	}
+
+	// Profile should still exist
+	getRes, _ := h.HandleGetProfile(ctx, call(map[string]any{
+		"project": "p1", "slug": "backend",
+	}))
+	got := parseJSON(t, getRes)
+	if got["slug"] != "backend" {
+		t.Error("profile should still exist after blocked delete")
+	}
+
+	// After deactivating the agent, delete succeeds
+	_, _ = h.HandleDeactivateAgent(ctx, call(map[string]any{
+		"project": "p1", "name": "bot-a",
+	}))
+	res2, _ := h.HandleDeleteProfile(ctx, call(map[string]any{
+		"project": "p1", "slug": "backend",
+	}))
+	data2 := parseJSON(t, res2)
+	if data2["status"] != "deleted" {
+		t.Errorf("expected status=deleted after deactivating agent, got %v", data2["status"])
+	}
+}
+
 func TestFindProfiles(t *testing.T) {
 	h := testHandlers(t)
 	_, _ = h.HandleRegisterProfile(ctx, call(map[string]any{

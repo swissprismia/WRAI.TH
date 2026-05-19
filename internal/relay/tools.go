@@ -332,6 +332,15 @@ func findProfilesTool() mcp.Tool {
 	)
 }
 
+func deleteProfileTool() mcp.Tool {
+	return mcp.NewTool(
+		"delete_profile",
+		mcp.WithDescription("Hard-delete a profile by slug. Idempotent: returns status='not_found' if the profile does not exist. Refuses (status='in_use') if any active agent currently references the profile — deactivate the agents first."),
+		projectParam,
+		mcp.WithString("slug", mcp.Description("Profile slug to delete"), mcp.Required()),
+	)
+}
+
 // --- Task tools ---
 
 func dispatchTaskTool() mcp.Tool {

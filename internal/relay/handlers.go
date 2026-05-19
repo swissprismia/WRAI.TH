@@ -1162,6 +1162,50 @@ func (h *Handlers) HandleListProfiles(ctx context.Context, req mcp.CallToolReque
 	})
 }
 
+func (h *Handlers) HandleDeleteProfile(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	project := resolveProject(ctx, req)
+	slug := req.GetString("slug", "")
+	if slug == "" {
+		return mcp.NewToolResultError("slug is required"), nil
+	}
+
+	existing, err := h.db.GetProfile(project, slug)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to look up profile: %v", err)), nil
+	}
+	if existing == nil {
+		return h.resultJSONTracked(project, "", "delete_profile", map[string]any{
+			"slug":   slug,
+			"status": "not_found",
+		})
+	}
+
+	agents, err := h.db.GetAgentsByProfile(project, slug)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to check agents for profile: %v", err)), nil
+	}
+	if len(agents) > 0 {
+		names := make([]string, 0, len(agents))
+		for _, a := range agents {
+			names = append(names, a.Name)
+		}
+		return h.resultJSONTracked(project, "", "delete_profile", map[string]any{
+			"slug":          slug,
+			"status":        "in_use",
+			"active_agents": names,
+			"hint":          "Deactivate the listed agents (deactivate_agent) before deleting the profile.",
+		})
+	}
+
+	if err := h.db.DeleteProfile(project, slug); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to delete profile: %v", err)), nil
+	}
+	return h.resultJSONTracked(project, "", "delete_profile", map[string]any{
+		"slug":   slug,
+		"status": "deleted",
+	})
+}
+
 // --- Task handlers ---
 
 func (h *Handlers) HandleDispatchTask(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
