@@ -18,6 +18,10 @@ type Config struct {
 	ClaudeBinary string // RELAY_CLAUDE_BINARY: path to claude CLI (default: "claude")
 	LocksDir     string // RELAY_LOCKS_DIR: directory for flock files (default: "/tmp/")
 	MaxPoolSize  int    // RELAY_MAX_POOL_SIZE: global max concurrent spawned children (default: 10)
+
+	// Chat feature flag
+	ChatEnabled bool // WRAITH_CHAT_ENABLED: enable /chat/** routes (default: false)
+	DevMode     bool // WRAITH_DEV_MODE: allow missing EasyAuth header (dev identity fallback)
 }
 
 // Load reads configuration from environment variables with safe defaults.
@@ -63,6 +67,9 @@ func Load() Config {
 			cfg.MaxPoolSize = n
 		}
 	}
+
+	cfg.ChatEnabled = os.Getenv("WRAITH_CHAT_ENABLED") == "1"
+	cfg.DevMode = os.Getenv("WRAITH_DEV_MODE") == "1"
 
 	return cfg
 }

@@ -37,7 +37,7 @@ func (d *DB) EnsureProject(name string) {
 // GetProject returns a project by name.
 func (d *DB) GetProject(name string) (*models.Project, error) {
 	var p models.Project
-	err := d.ro().QueryRow("SELECT name, planet_type, created_at FROM projects WHERE name = ?", name).Scan(&p.Name, &p.PlanetType, &p.CreatedAt)
+	err := d.ro().QueryRow("SELECT name, planet_type, created_at, chat_executive_role FROM projects WHERE name = ?", name).Scan(&p.Name, &p.PlanetType, &p.CreatedAt, &p.ChatExecutiveRole)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -117,7 +117,7 @@ func (d *DB) DeleteProject(name string) error {
 	return nil
 }
 
-// ListProjectsWithInfo returns all projects with their planet_type and stats.
+// ListProjectsWithInfo returns all projects with their planet_type, stats, and chat config.
 func (d *DB) ListProjectsWithInfo() ([]models.ProjectInfo, error) {
 	since24h := time.Now().UTC().Add(-24 * time.Hour).Format(time.RFC3339)
 	rows, err := d.ro().Query(`
@@ -127,7 +127,8 @@ func (d *DB) ListProjectsWithInfo() ([]models.ProjectInfo, error) {
 			COALESCE(tc.total_tasks, 0),
 			COALESCE(tc.active_tasks, 0),
 			COALESCE(tc.done_tasks, 0),
-			COALESCE(tu.tokens_24h, 0)
+			COALESCE(tu.tokens_24h, 0),
+			p.chat_executive_role
 		FROM projects p
 		LEFT JOIN (
 			SELECT project, COUNT(*) as agent_count,
@@ -155,7 +156,7 @@ func (d *DB) ListProjectsWithInfo() ([]models.ProjectInfo, error) {
 	var projects []models.ProjectInfo
 	for rows.Next() {
 		var p models.ProjectInfo
-		if err := rows.Scan(&p.Name, &p.PlanetType, &p.CreatedAt, &p.AgentCount, &p.OnlineCount, &p.TotalTasks, &p.ActiveTasks, &p.DoneTasks, &p.Tokens24h); err != nil {
+		if err := rows.Scan(&p.Name, &p.PlanetType, &p.CreatedAt, &p.AgentCount, &p.OnlineCount, &p.TotalTasks, &p.ActiveTasks, &p.DoneTasks, &p.Tokens24h, &p.ChatExecutiveRole); err != nil {
 			return nil, err
 		}
 		projects = append(projects, p)
