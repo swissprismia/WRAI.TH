@@ -8,6 +8,7 @@ import (
 // ClientPrincipal holds the parsed EasyAuth identity.
 type ClientPrincipal struct {
 	Email  string // email extracted from claims; "dev@local" when dev-mode fallback
+	Name   string // display name extracted from claims; empty when not present
 	Source string // "easyauth" or "dev"
 }
 
@@ -20,6 +21,12 @@ var emailClaimTypes = map[string]bool{
 	"http://schemas.xmlsoap.org/ws/2005/05/identity/claims/upn":          true,
 }
 
+// name claim type URNs recognised by Azure App Service EasyAuth.
+var nameClaimTypes = map[string]bool{
+	"name": true,
+	"http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name": true,
+}
+
 type easyAuthClaim struct {
 	Typ string `json:"typ"`
 	Val string `json:"val"`
@@ -30,7 +37,8 @@ type easyAuthPrincipal struct {
 }
 
 // parseClientPrincipal decodes the X-MS-CLIENT-PRINCIPAL header (base64 JSON)
-// and extracts the user's email address. Returns nil if the header is absent or unparseable.
+// and extracts the user's email address and display name. Returns nil if the
+// header is absent or unparseable. Accepts both standard and URL-safe base64.
 func parseClientPrincipal(header string) *ClientPrincipal {
 	if header == "" {
 		return nil
@@ -38,19 +46,30 @@ func parseClientPrincipal(header string) *ClientPrincipal {
 
 	decoded, err := base64.StdEncoding.DecodeString(header)
 	if err != nil {
-		return nil
-	}
-
-	var principal easyAuthPrincipal
-	if err := json.Unmarshal(decoded, &principal); err != nil {
-		return nil
-	}
-
-	for _, c := range principal.Claims {
-		if emailClaimTypes[c.Typ] && c.Val != "" {
-			return &ClientPrincipal{Email: c.Val, Source: "easyauth"}
+		decoded, err = base64.RawURLEncoding.DecodeString(header)
+		if err != nil {
+			return nil
 		}
 	}
 
-	return nil
+	var raw easyAuthPrincipal
+	if err := json.Unmarshal(decoded, &raw); err != nil {
+		return nil
+	}
+
+	var email, name string
+	for _, c := range raw.Claims {
+		if email == "" && emailClaimTypes[c.Typ] && c.Val != "" {
+			email = c.Val
+		}
+		if name == "" && nameClaimTypes[c.Typ] && c.Val != "" {
+			name = c.Val
+		}
+	}
+
+	if email == "" {
+		return nil
+	}
+
+	return &ClientPrincipal{Email: email, Name: name, Source: "easyauth"}
 }

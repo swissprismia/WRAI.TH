@@ -88,6 +88,49 @@ func TestEasyAuthParserBadBase64(t *testing.T) {
 	}
 }
 
+func TestEasyAuthParserURLSafeBase64(t *testing.T) {
+	principal := map[string]any{
+		"claims": []map[string]string{
+			{"typ": "preferred_username", "val": "bob@example.com"},
+		},
+	}
+	b, _ := json.Marshal(principal)
+	header := base64.RawURLEncoding.EncodeToString(b)
+
+	p := parseClientPrincipal(header)
+	if p == nil {
+		t.Fatal("expected non-nil principal for URL-safe base64 header")
+	}
+	if p.Email != "bob@example.com" {
+		t.Errorf("expected email=bob@example.com, got %q", p.Email)
+	}
+	if p.Source != "easyauth" {
+		t.Errorf("expected source=easyauth, got %q", p.Source)
+	}
+}
+
+func TestEasyAuthParserNameClaim(t *testing.T) {
+	principal := map[string]any{
+		"claims": []map[string]string{
+			{"typ": "preferred_username", "val": "carol@example.com"},
+			{"typ": "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name", "val": "Carol Smith"},
+		},
+	}
+	b, _ := json.Marshal(principal)
+	header := base64.StdEncoding.EncodeToString(b)
+
+	p := parseClientPrincipal(header)
+	if p == nil {
+		t.Fatal("expected non-nil principal")
+	}
+	if p.Email != "carol@example.com" {
+		t.Errorf("expected email=carol@example.com, got %q", p.Email)
+	}
+	if p.Name != "Carol Smith" {
+		t.Errorf("expected name=Carol Smith, got %q", p.Name)
+	}
+}
+
 func TestEasyAuthParserDevFallback(t *testing.T) {
 	r := testRelay(t, true, true)
 
