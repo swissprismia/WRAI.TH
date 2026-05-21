@@ -721,7 +721,28 @@ func migrate(conn *sql.DB) error {
 	// Lowercase all agent names for case-insensitive matching
 	migrateLowercaseAgentNames(conn)
 
+	// Chat messages (ADF-082)
+	migrateChat(conn)
+
 	return nil
+}
+
+// migrateChat creates the chat_messages table and extends projects with chat_executive_role.
+func migrateChat(conn *sql.DB) {
+	_, _ = conn.Exec(`CREATE TABLE IF NOT EXISTS chat_messages (
+		id           TEXT PRIMARY KEY,
+		project      TEXT NOT NULL REFERENCES projects(name) ON DELETE CASCADE,
+		sender_role  TEXT NOT NULL,
+		sender_email TEXT,
+		recipient    TEXT NOT NULL,
+		content      TEXT NOT NULL,
+		created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+		read_at      TEXT
+	)`)
+	_, _ = conn.Exec(`CREATE INDEX IF NOT EXISTS idx_chat_messages_project_created ON chat_messages(project, created_at)`)
+	ensureColumns(conn, "projects", map[string]string{
+		"chat_executive_role": "TEXT",
+	})
 }
 
 // backfillProjects creates project entries for any existing agents that don't have a project row yet.

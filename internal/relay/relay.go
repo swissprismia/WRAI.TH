@@ -186,6 +186,11 @@ func New(database *db.DB, ingester *ingest.Ingester, vaultWatcher *vault.Watcher
 		server.ServerTool{Tool: triggerCycleTool(), Handler: handlers.HandleTriggerCycle},
 	)
 
+	// Chat MCP tool — always registered so operators can configure the role before enabling routes.
+	mcpSrv.AddTools(
+		server.ServerTool{Tool: setChatExecutiveTool(), Handler: handlers.HandleSetChatExecutive},
+	)
+
 	httpSrv := server.NewStreamableHTTPServer(
 		mcpSrv,
 		server.WithHTTPContextFunc(HTTPContextFunc),
@@ -212,27 +217,39 @@ func New(database *db.DB, ingester *ingest.Ingester, vaultWatcher *vault.Watcher
 }
 
 // ListenAndServe starts a composite HTTP server that serves:
-//   - /mcp     → MCP Streamable HTTP handler
-//   - /api/*   → REST API for the web UI
-//   - /*       → Embedded static files (web UI)
+//   - /mcp        → MCP Streamable HTTP handler
+//   - /api/*      → REST API for the web UI
+//   - /chat/**    → Chat routes (EasyAuth, no Bearer required; only when WRAITH_CHAT_ENABLED=1)
+//   - /*          → Embedded static files (web UI)
 func (r *Relay) ListenAndServe(addr string) error {
-	mux := http.NewServeMux()
+	// chatMux holds routes that bypass bearer auth (chat uses EasyAuth).
+	// Requests hitting /chat/** are served directly, before the auth middleware chain.
+	chatMux := http.NewServeMux()
+	if r.Config.ChatEnabled {
+		chatMux.HandleFunc("/chat/", r.ServeChat)
+	}
 
-	// MCP handler
-	mux.Handle("/mcp", r.HTTP)
+	// mainMux holds routes protected by the full middleware chain.
+	mainMux := http.NewServeMux()
+	mainMux.Handle("/mcp", r.HTTP)
+	mainMux.HandleFunc("/api/", r.ServeAPI)
 
-	// REST API
-	mux.HandleFunc("/api/", r.ServeAPI)
-
-	// Embedded static files
 	staticFS, err := fs.Sub(web.StaticFiles, "static")
 	if err != nil {
 		log.Fatalf("failed to create sub FS: %v", err)
 	}
-	mux.Handle("/", http.FileServerFS(staticFS))
+	mainMux.Handle("/", http.FileServerFS(staticFS))
 
-	handler := r.buildMiddlewareChain(mux)
-	r.httpServer = &http.Server{Addr: addr, Handler: handler}
+	protectedHandler := r.buildMiddlewareChain(mainMux)
+
+	// Top-level router: /chat/** bypasses bearer auth; everything else goes through it.
+	topMux := http.NewServeMux()
+	if r.Config.ChatEnabled {
+		topMux.Handle("/chat/", chatMux)
+	}
+	topMux.Handle("/", protectedHandler)
+
+	r.httpServer = &http.Server{Addr: addr, Handler: topMux}
 	return r.httpServer.ListenAndServe()
 }
 

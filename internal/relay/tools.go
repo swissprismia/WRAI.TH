@@ -940,3 +940,13 @@ func triggerCycleTool() mcp.Tool {
 		mcp.WithString("schedule_id", mcp.Description("Schedule ID to trigger (from list_schedules)"), mcp.Required()),
 	)
 }
+
+func setChatExecutiveTool() mcp.Tool {
+	return mcp.NewTool(
+		"set_chat_executive",
+		mcp.WithDescription("Set (or update) the executive role for a project's chat feature. The executive role is the agent role that receives human chat messages (e.g. 'cto', 'director'). Setting this enables chat for the project; set to empty string to disable. Admin-only — caller must be registered with is_executive=true."),
+		asParam,
+		projectParam,
+		mcp.WithString("role", mcp.Description("Executive role name (e.g. 'cto', 'director'). Set to empty string to disable chat for this project."), mcp.Required()),
+	)
+}

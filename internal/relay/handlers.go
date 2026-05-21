@@ -2934,3 +2934,39 @@ func (h *Handlers) HandleListVaultDocs(ctx context.Context, req mcp.CallToolRequ
 		"docs":        metas,
 	})
 }
+
+// --- Chat admin: set_chat_executive ---
+
+func (h *Handlers) HandleSetChatExecutive(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	project := resolveProject(ctx, req)
+	agent := resolveAgent(ctx, req)
+
+	// Explicit project parameter overrides the URL default (tool has its own project param).
+	if p := req.GetString("project", ""); p != "" {
+		project = p
+	}
+
+	role := req.GetString("role", "")
+
+	// Admin-only: caller must be registered as is_executive.
+	agentObj, err := h.db.GetAgent(project, agent)
+	if err != nil || agentObj == nil {
+		return mcp.NewToolResultError("agent not found — register before calling set_chat_executive"), nil
+	}
+	if !agentObj.IsExecutive {
+		return mcp.NewToolResultError("set_chat_executive is admin-only (is_executive=true required)"), nil
+	}
+
+	updated, err := h.db.SetChatExecutiveRole(project, role)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to set chat executive role: %v", err)), nil
+	}
+	if updated == nil {
+		return mcp.NewToolResultError(fmt.Sprintf("project %q not found", project)), nil
+	}
+
+	return h.resultJSONTracked(project, agent, "set_chat_executive", map[string]any{
+		"project":             updated.Name,
+		"chat_executive_role": updated.ChatExecutiveRole,
+	})
+}
