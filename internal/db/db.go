@@ -722,13 +722,6 @@ func migrate(conn *sql.DB) error {
 	migrateLowercaseAgentNames(conn)
 
 	// Chat messages (ADF-082)
-	migrateChat(conn)
-
-	return nil
-}
-
-// migrateChat creates the chat_messages table and extends projects with chat_executive_role.
-func migrateChat(conn *sql.DB) {
 	_, _ = conn.Exec(`CREATE TABLE IF NOT EXISTS chat_messages (
 		id           TEXT PRIMARY KEY,
 		project      TEXT NOT NULL REFERENCES projects(name) ON DELETE CASCADE,
@@ -743,6 +736,8 @@ func migrateChat(conn *sql.DB) {
 	ensureColumns(conn, "projects", map[string]string{
 		"chat_executive_role": "TEXT",
 	})
+
+	return nil
 }
 
 // backfillProjects creates project entries for any existing agents that don't have a project row yet.
