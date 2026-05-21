@@ -3,6 +3,7 @@ package relay
 import (
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"net/http"
 	"strconv"
 	"strings"
@@ -43,17 +44,35 @@ func chatSlug(path, prefix string) string {
 	return s
 }
 
-// serveChatStaticIndex serves a placeholder HTML page for GET /chat/
-func (r *Relay) serveChatStaticIndex(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte("<!DOCTYPE html><html><body><h1>Chat — Phase 2 coming soon</h1></body></html>"))
-}
-
-// serveChatStaticSlug serves a placeholder HTML page for GET /chat/p/:slug
-func (r *Relay) serveChatStaticSlug(w http.ResponseWriter, req *http.Request) {
-	slug := chatSlug(req.URL.Path, "/chat/p/")
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte("<!DOCTYPE html><html><body><h1>Chat — " + slug + " — Phase 2 coming soon</h1></body></html>"))
+// serveChatStatic serves the embedded Vite/React SPA.
+//
+// Routing within this handler:
+//   - GET /chat/ and GET /chat/p/* → serve index.html (SPA fallback for client-side routing)
+//   - Everything else → http.FileServer on the embedded chat sub-FS (assets, etc.)
+//
+// Architect note: http.StripPrefix("/chat/", ...) is required before delegating to
+// http.FileServer so that embedded paths resolve correctly (e.g. /chat/assets/x → assets/x).
+func (r *Relay) serveChatStatic(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodGet {
+		http.NotFound(w, req)
+		return
+	}
+	if r.ChatStaticFS == nil {
+		http.Error(w, "chat UI not built — run 'make ui' first", http.StatusServiceUnavailable)
+		return
+	}
+	path := req.URL.Path
+	if path == "/chat/" || strings.HasPrefix(path, "/chat/p/") {
+		data, err := fs.ReadFile(r.ChatStaticFS, "index.html")
+		if err != nil {
+			http.Error(w, "chat UI not built — run 'make ui' first", http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(data)
+		return
+	}
+	http.StripPrefix("/chat/", http.FileServer(http.FS(r.ChatStaticFS))).ServeHTTP(w, req)
 }
 
 // serveChatProjects handles GET /chat/api/projects
@@ -186,16 +205,16 @@ func (r *Relay) serveChatHistory(w http.ResponseWriter, req *http.Request) {
 }
 
 // ServeChat routes all /chat/ requests. These routes bypass bearer auth (they use EasyAuth).
+// Returns 404 immediately when WRAITH_CHAT_ENABLED=0, consistent with the HTTP-mux-level gate.
 func (r *Relay) ServeChat(w http.ResponseWriter, req *http.Request) {
+	if !r.Config.ChatEnabled {
+		http.NotFound(w, req)
+		return
+	}
+
 	path := req.URL.Path
 
 	switch {
-	case path == "/chat/" && req.Method == http.MethodGet:
-		r.serveChatStaticIndex(w, req)
-
-	case strings.HasPrefix(path, "/chat/p/") && req.Method == http.MethodGet:
-		r.serveChatStaticSlug(w, req)
-
 	case path == "/chat/api/projects" && req.Method == http.MethodGet:
 		r.serveChatProjects(w, req)
 
@@ -209,6 +228,6 @@ func (r *Relay) ServeChat(w http.ResponseWriter, req *http.Request) {
 		r.serveChatHistory(w, req)
 
 	default:
-		http.NotFound(w, req)
+		r.serveChatStatic(w, req)
 	}
 }

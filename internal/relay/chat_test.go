@@ -3,18 +3,25 @@ package relay
 import (
 	"bytes"
 	"context"
+	"embed"
 	"encoding/base64"
 	"encoding/json"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"agent-relay/internal/config"
 	"agent-relay/internal/db"
+	"agent-relay/internal/web"
 
 	"github.com/mark3labs/mcp-go/server"
 )
+
+//go:embed testdata/chat
+var testChatFSEmbed embed.FS
 
 // testRelay builds a minimal Relay with chat enabled/disabled for HTTP handler tests.
 func testRelay(t *testing.T, chatEnabled, devMode bool) *Relay {
@@ -378,5 +385,85 @@ func TestSetChatExecutiveAdminOnly(t *testing.T) {
 	}
 	if !res.IsError {
 		t.Error("expected error for non-executive caller, got success")
+	}
+}
+
+// --- SPA static handler tests ---
+
+// chatSubFS returns the test fixture FS rooted at testdata/chat.
+func chatSubFS(t *testing.T) fs.FS {
+	t.Helper()
+	sub, err := fs.Sub(testChatFSEmbed, "testdata/chat")
+	if err != nil {
+		t.Fatalf("fs.Sub testdata/chat: %v", err)
+	}
+	return sub
+}
+
+func TestChatStaticServesIndex(t *testing.T) {
+	r := testRelay(t, true, false)
+	r.ChatStaticFS = chatSubFS(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/chat/", nil)
+	w := httptest.NewRecorder()
+	r.ServeChat(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(strings.ToLower(w.Body.String()), "<!doctype html>") {
+		t.Errorf("expected <!doctype html> in body, got: %s", w.Body.String())
+	}
+}
+
+func TestChatStaticServesAssets(t *testing.T) {
+	r := testRelay(t, true, false)
+	r.ChatStaticFS = chatSubFS(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/chat/assets/stub.js", nil)
+	w := httptest.NewRecorder()
+	r.ServeChat(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestChatStaticDisabledWhenFlagOff(t *testing.T) {
+	r := testRelay(t, false, false)
+	r.ChatStaticFS = chatSubFS(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/chat/", nil)
+	w := httptest.NewRecorder()
+	r.ServeChat(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404 when chat disabled, got %d", w.Code)
+	}
+}
+
+func TestChatStaticSPAFallback(t *testing.T) {
+	r := testRelay(t, true, false)
+	r.ChatStaticFS = chatSubFS(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/chat/p/some-slug", nil)
+	w := httptest.NewRecorder()
+	r.ServeChat(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for SPA fallback, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(strings.ToLower(w.Body.String()), "<!doctype html>") {
+		t.Errorf("expected index.html body for SPA route, got: %s", w.Body.String())
+	}
+}
+
+func TestChatStaticEmbedHasIndex(t *testing.T) {
+	// Sanity check: verifies that static/chat/index.html exists in the production
+	// embedded FS. t.Skip is allowed when make ui hasn't been run locally;
+	// CI always runs make ui before go test so this must pass in CI.
+	_, err := fs.Stat(web.StaticFiles, "static/chat/index.html")
+	if err != nil {
+		t.Skipf("static/chat/index.html not found in embedded FS — run 'make ui' first: %v", err)
 	}
 }

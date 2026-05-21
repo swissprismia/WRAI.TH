@@ -1,0 +1,1 @@
+// stub asset for TestChatStaticServesAssets

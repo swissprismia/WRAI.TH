@@ -17,10 +17,18 @@ endif
 SKILL_DIR  := $(HOME)/.claude/commands
 SKILL_FILE := relay.md
 
-.PHONY: build install uninstall service service-stop skill clean help
+.PHONY: build ui install uninstall service service-stop skill clean help
+
+## ui: Build the chat UI static assets (requires Node ≥24)
+ui:
+	cd web/chat && npm ci && npm run build
+	rm -rf internal/web/static/chat
+	cp -r web/chat/dist internal/web/static/chat
 
 ## build: Compile the binary with version info
 build:
+	@test -d internal/web/static/chat || \
+	  (echo "ERROR: chat UI not built — run 'make ui' first"; exit 1)
 	$(GOFLAGS) go build -tags "fts5" -ldflags="$(LDFLAGS)" -o $(BINARY) .
 
 ## install: Build, install binary, skill, and service
