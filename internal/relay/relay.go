@@ -37,6 +37,7 @@ type Relay struct {
 	Handlers       *Handlers
 	WorkflowEngine *workflow.Engine
 	Config         config.Config
+	ChatStaticFS   fs.FS
 	httpServer     *http.Server
 	StartedAt      time.Time
 }
@@ -198,6 +199,8 @@ func New(database *db.DB, ingester *ingest.Ingester, vaultWatcher *vault.Watcher
 		server.WithStateLess(true),
 	)
 
+	chatStaticFS, _ := fs.Sub(web.StaticFiles, "static/chat")
+
 	return &Relay{
 		MCPServer:      mcpSrv,
 		HTTP:           httpSrv,
@@ -212,6 +215,7 @@ func New(database *db.DB, ingester *ingest.Ingester, vaultWatcher *vault.Watcher
 		Handlers:       handlers,
 		WorkflowEngine: wfEngine,
 		Config:         cfg,
+		ChatStaticFS:   chatStaticFS,
 		StartedAt:      time.Now().UTC(),
 	}
 }

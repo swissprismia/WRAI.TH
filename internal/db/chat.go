@@ -35,7 +35,8 @@ func (d *DB) InsertChatMessage(project, senderEmail, content string) (*models.Ch
 	}
 
 	id := uuid.New().String()
-	now := time.Now().UTC().Format(time.RFC3339)
+	// memoryTimeFmt (microsecond precision) so same-second batch sends stay paginable.
+	now := time.Now().UTC().Format(memoryTimeFmt)
 
 	msg := &models.ChatMessage{
 		ID:          id,
@@ -162,7 +163,7 @@ func (d *DB) GetChatHistory(project, before string, limit int) ([]models.ChatMes
 		limit = 200
 	}
 	if before == "" {
-		before = time.Now().UTC().Format(time.RFC3339)
+		before = time.Now().UTC().Format(memoryTimeFmt)
 	}
 
 	rows, err := d.ro().Query(
