@@ -23,8 +23,8 @@ import (
 //go:embed testdata/chat
 var testChatFSEmbed embed.FS
 
-// testRelay builds a minimal Relay with chat enabled/disabled for HTTP handler tests.
-func testRelay(t *testing.T, chatEnabled, devMode bool) *Relay {
+// testChatRelay builds a minimal Relay with chat enabled/disabled for HTTP handler tests.
+func testChatRelay(t *testing.T, chatEnabled, devMode bool) *Relay {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "relay_chat_test.db")
 	database, err := db.NewTestDB(dbPath)
@@ -139,7 +139,7 @@ func TestEasyAuthParserNameClaim(t *testing.T) {
 }
 
 func TestEasyAuthParserDevFallback(t *testing.T) {
-	r := testRelay(t, true, true)
+	r := testChatRelay(t, true, true)
 
 	req := httptest.NewRequest(http.MethodGet, "/chat/api/projects", nil)
 	// No X-MS-CLIENT-PRINCIPAL header — dev mode should fall back to dev@local.
@@ -152,7 +152,7 @@ func TestEasyAuthParserDevFallback(t *testing.T) {
 }
 
 func TestEasyAuthParserDevFallbackOff(t *testing.T) {
-	r := testRelay(t, true, false)
+	r := testChatRelay(t, true, false)
 
 	req := httptest.NewRequest(http.MethodGet, "/chat/api/projects", nil)
 	// No header, dev mode off → 401.
@@ -167,7 +167,7 @@ func TestEasyAuthParserDevFallbackOff(t *testing.T) {
 // --- HTTP route tests ---
 
 func TestChatSendHappyPath(t *testing.T) {
-	r := testRelay(t, true, false)
+	r := testChatRelay(t, true, false)
 
 	r.DB.EnsureProject("myproj")
 	_, err := r.DB.SetChatExecutiveRole("myproj", "cto")
@@ -197,7 +197,7 @@ func TestChatSendHappyPath(t *testing.T) {
 }
 
 func TestChatSendAuthMissing(t *testing.T) {
-	r := testRelay(t, true, false)
+	r := testChatRelay(t, true, false)
 
 	r.DB.EnsureProject("authtest")
 	_, _ = r.DB.SetChatExecutiveRole("authtest", "cto")
@@ -216,7 +216,7 @@ func TestChatSendAuthMissing(t *testing.T) {
 }
 
 func TestChatSendWrongProject(t *testing.T) {
-	r := testRelay(t, true, false)
+	r := testChatRelay(t, true, false)
 
 	body := `{"content":"hello"}`
 	req := httptest.NewRequest(http.MethodPost, "/chat/api/p/nonexistent/send", bytes.NewReader([]byte(body)))
@@ -232,7 +232,7 @@ func TestChatSendWrongProject(t *testing.T) {
 }
 
 func TestChatSendChatDisabledForProject(t *testing.T) {
-	r := testRelay(t, true, false)
+	r := testChatRelay(t, true, false)
 	r.DB.EnsureProject("nochat")
 
 	body := `{"content":"hello"}`
@@ -249,7 +249,7 @@ func TestChatSendChatDisabledForProject(t *testing.T) {
 }
 
 func TestChatPollDrainsReplies(t *testing.T) {
-	r := testRelay(t, true, false)
+	r := testChatRelay(t, true, false)
 
 	r.DB.EnsureProject("pollproj")
 	_, _ = r.DB.SetChatExecutiveRole("pollproj", "cto")
@@ -282,7 +282,7 @@ func TestChatPollDrainsReplies(t *testing.T) {
 }
 
 func TestChatHistoryPaginationRoute(t *testing.T) {
-	r := testRelay(t, true, false)
+	r := testChatRelay(t, true, false)
 
 	r.DB.EnsureProject("histproj")
 	_, _ = r.DB.SetChatExecutiveRole("histproj", "cto")
@@ -401,7 +401,7 @@ func chatSubFS(t *testing.T) fs.FS {
 }
 
 func TestChatStaticServesIndex(t *testing.T) {
-	r := testRelay(t, true, false)
+	r := testChatRelay(t, true, false)
 	r.ChatStaticFS = chatSubFS(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/chat/", nil)
@@ -417,7 +417,7 @@ func TestChatStaticServesIndex(t *testing.T) {
 }
 
 func TestChatStaticServesAssets(t *testing.T) {
-	r := testRelay(t, true, false)
+	r := testChatRelay(t, true, false)
 	r.ChatStaticFS = chatSubFS(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/chat/assets/stub.js", nil)
@@ -430,7 +430,7 @@ func TestChatStaticServesAssets(t *testing.T) {
 }
 
 func TestChatStaticDisabledWhenFlagOff(t *testing.T) {
-	r := testRelay(t, false, false)
+	r := testChatRelay(t, false, false)
 	r.ChatStaticFS = chatSubFS(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/chat/", nil)
@@ -443,7 +443,7 @@ func TestChatStaticDisabledWhenFlagOff(t *testing.T) {
 }
 
 func TestChatStaticSPAFallback(t *testing.T) {
-	r := testRelay(t, true, false)
+	r := testChatRelay(t, true, false)
 	r.ChatStaticFS = chatSubFS(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/chat/p/some-slug", nil)
