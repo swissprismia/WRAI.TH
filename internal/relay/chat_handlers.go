@@ -13,6 +13,34 @@ import (
 	"agent-relay/internal/models"
 )
 
+// chatEntry is the wire shape the SPA expects for every chat message.
+type chatEntry struct {
+	ID      string `json:"id"`
+	TS      string `json:"ts"`
+	Kind    string `json:"kind"`
+	From    string `json:"from"`
+	Content string `json:"content"`
+}
+
+// msgToEntry converts a models.ChatMessage to the SPA's ChatEntry wire shape.
+func msgToEntry(msg models.ChatMessage) chatEntry {
+	kind := msg.SenderRole
+	if msg.SenderRole == "human" {
+		kind = "human"
+	}
+	from := msg.SenderRole
+	if msg.SenderEmail != nil && *msg.SenderEmail != "" {
+		from = *msg.SenderEmail
+	}
+	return chatEntry{
+		ID:      msg.ID,
+		TS:      msg.CreatedAt,
+		Kind:    kind,
+		From:    from,
+		Content: msg.Content,
+	}
+}
+
 // chatIdentity resolves the caller's identity from EasyAuth or dev-mode fallback.
 // Returns (email, true) on success or ("", false) on auth failure.
 func (r *Relay) chatIdentity(w http.ResponseWriter, req *http.Request) (string, bool) {
@@ -134,7 +162,7 @@ func (r *Relay) serveChatSend(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	chatJSON(w, http.StatusCreated, msg)
+	chatJSON(w, http.StatusCreated, map[string]any{"entry": msgToEntry(*msg)})
 }
 
 // serveChatPoll handles GET /chat/api/p/:slug/poll?since=<iso>
@@ -163,10 +191,11 @@ func (r *Relay) serveChatPoll(w http.ResponseWriter, req *http.Request) {
 		chatJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to poll messages"})
 		return
 	}
-	if msgs == nil {
-		msgs = []models.ChatMessage{}
+	entries := make([]chatEntry, len(msgs))
+	for i, m := range msgs {
+		entries[i] = msgToEntry(m)
 	}
-	chatJSON(w, http.StatusOK, map[string]any{"messages": msgs})
+	chatJSON(w, http.StatusOK, map[string]any{"messages": entries})
 }
 
 // serveChatHistory handles GET /chat/api/p/:slug/history?before=<iso>&limit=N
@@ -198,10 +227,11 @@ func (r *Relay) serveChatHistory(w http.ResponseWriter, req *http.Request) {
 		chatJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to get history"})
 		return
 	}
-	if msgs == nil {
-		msgs = []models.ChatMessage{}
+	entries := make([]chatEntry, len(msgs))
+	for i, m := range msgs {
+		entries[i] = msgToEntry(m)
 	}
-	chatJSON(w, http.StatusOK, map[string]any{"messages": msgs})
+	chatJSON(w, http.StatusOK, map[string]any{"messages": entries})
 }
 
 // ServeChat routes all /chat/ requests. These routes bypass bearer auth (they use EasyAuth).
