@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -191,8 +192,15 @@ func TestChatSendHappyPath(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if resp["recipient"] != "cto" {
-		t.Errorf("expected recipient=cto, got %v", resp["recipient"])
+	entry, ok := resp["entry"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected top-level 'entry' key, got: %v", resp)
+	}
+	if entry["kind"] != "human" {
+		t.Errorf("expected entry.kind=human, got %v", entry["kind"])
+	}
+	if entry["content"] != "hello from the browser" {
+		t.Errorf("expected entry.content to match sent content, got %v", entry["content"])
 	}
 }
 
@@ -465,5 +473,100 @@ func TestChatStaticEmbedHasIndex(t *testing.T) {
 	_, err := fs.Stat(web.StaticFiles, "static/chat/index.html")
 	if err != nil {
 		t.Skipf("static/chat/index.html not found in embedded FS — run 'make ui' first: %v", err)
+	}
+}
+
+// --- Wire-format integration tests ---
+
+// assertChatEntry validates that v is a map with the expected ChatEntry shape.
+func assertChatEntry(t *testing.T, label string, v any, wantContent string) {
+	t.Helper()
+	entry, ok := v.(map[string]any)
+	if !ok {
+		t.Fatalf("%s: expected map, got %T: %v", label, v, v)
+	}
+	if entry["id"] == "" || entry["id"] == nil {
+		t.Errorf("%s: entry.id must be non-empty", label)
+	}
+	if entry["ts"] == "" || entry["ts"] == nil {
+		t.Errorf("%s: entry.ts must be non-empty", label)
+	}
+	kind, _ := entry["kind"].(string)
+	if kind != "human" && kind != "cto" {
+		t.Errorf("%s: entry.kind must be 'human' or 'cto', got %q", label, kind)
+	}
+	if entry["from"] == "" || entry["from"] == nil {
+		t.Errorf("%s: entry.from must be non-empty", label)
+	}
+	if entry["content"] != wantContent {
+		t.Errorf("%s: entry.content=%q, want %q", label, entry["content"], wantContent)
+	}
+	// Reject raw ChatMessage keys that must not appear in the wire shape.
+	if _, bad := entry["sender_role"]; bad {
+		t.Errorf("%s: raw key 'sender_role' must not appear in ChatEntry response", label)
+	}
+	if _, bad := entry["created_at"]; bad {
+		t.Errorf("%s: raw key 'created_at' must not appear in ChatEntry response", label)
+	}
+}
+
+// TestChatWireFormat is the end-to-end wire-shape integration test:
+//
+//	POST /chat/api/p/:slug/send → assert {entry: ChatEntry}
+//	GET  /chat/api/p/:slug/poll → assert {messages: [ChatEntry, …]}
+func TestChatWireFormat(t *testing.T) {
+	r := testChatRelay(t, true, false)
+
+	r.DB.EnsureProject("wireproj")
+	_, err := r.DB.SetChatExecutiveRole("wireproj", "cto")
+	if err != nil {
+		t.Fatalf("SetChatExecutiveRole: %v", err)
+	}
+
+	const msgContent = "wire-format smoke test"
+
+	// --- Send ---
+	body := `{"content":"` + msgContent + `"}`
+	sendReq := httptest.NewRequest(http.MethodPost, "/chat/api/p/wireproj/send", bytes.NewReader([]byte(body)))
+	sendReq.Header.Set("Content-Type", "application/json")
+	sendReq.Header.Set("X-MS-CLIENT-PRINCIPAL", easyAuthHeader("tester@example.com"))
+
+	sendW := httptest.NewRecorder()
+	r.ServeChat(sendW, sendReq)
+
+	if sendW.Code != http.StatusCreated {
+		t.Fatalf("send: expected 201, got %d: %s", sendW.Code, sendW.Body.String())
+	}
+
+	var sendResp map[string]any
+	if err := json.NewDecoder(sendW.Body).Decode(&sendResp); err != nil {
+		t.Fatalf("send: decode: %v", err)
+	}
+	if _, ok := sendResp["entry"]; !ok {
+		t.Fatalf("send: response missing top-level 'entry' key; got keys: %v", sendResp)
+	}
+	assertChatEntry(t, "send.entry", sendResp["entry"], msgContent)
+
+	// --- Poll ---
+	pollReq := httptest.NewRequest(http.MethodGet, "/chat/api/p/wireproj/poll?since=2000-01-01T00:00:00Z", nil)
+	pollReq.Header.Set("X-MS-CLIENT-PRINCIPAL", easyAuthHeader("tester@example.com"))
+
+	pollW := httptest.NewRecorder()
+	r.ServeChat(pollW, pollReq)
+
+	if pollW.Code != http.StatusOK {
+		t.Fatalf("poll: expected 200, got %d: %s", pollW.Code, pollW.Body.String())
+	}
+
+	var pollResp map[string]any
+	if err := json.NewDecoder(pollW.Body).Decode(&pollResp); err != nil {
+		t.Fatalf("poll: decode: %v", err)
+	}
+	msgs, ok := pollResp["messages"].([]any)
+	if !ok || len(msgs) == 0 {
+		t.Fatalf("poll: expected non-empty 'messages' array, got: %v", pollResp["messages"])
+	}
+	for i, m := range msgs {
+		assertChatEntry(t, strings.Join([]string{"poll.messages[", strconv.Itoa(i), "]"}, ""), m, msgContent)
 	}
 }
