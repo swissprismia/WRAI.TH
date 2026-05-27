@@ -46,6 +46,17 @@ export default function ChatView({ slug, initialEntries, pollIntervalMs }: Props
     });
   }, []);
 
+  // History is fetched asynchronously by the parent (ChatPage) and arrives via
+  // the initialEntries prop *after* this component has already mounted. useState
+  // only captures the prop's first (empty) value, so merge it in whenever it
+  // changes. Without this, loaded history is silently dropped and only the
+  // rolling 5-min poll window ever populates the view — messages vanish on tab
+  // reopen even though the relay returns them (ADF-082 / CodeFire #99).
+  // mergeEntries dedupes by id, so this is safe against what poll already added.
+  useEffect(() => {
+    mergeEntries(initialEntries);
+  }, [initialEntries, mergeEntries]);
+
   const pollOnce = useCallback(async () => {
     if (inFlightRef.current) return;
     inFlightRef.current = true;
