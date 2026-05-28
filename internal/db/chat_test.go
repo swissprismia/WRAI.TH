@@ -107,6 +107,35 @@ func TestChatInsertAndPoll(t *testing.T) {
 	if err != nil || inboxCount == 0 {
 		t.Error("expected inbox message for executive, found none")
 	}
+
+	// And the matching deliveries row — without it, GetInboxViaDeliveries
+	// (the production code path whenever HasDeliveries() is true) cannot
+	// surface the notification to the runner's chat-gate.
+	var deliveryCount int
+	err = d.conn.QueryRow(
+		`SELECT COUNT(*) FROM deliveries d JOIN messages m ON d.message_id = m.id
+		 WHERE d.to_agent = 'cto' AND d.project = 'myproject' AND d.state = 'queued'`,
+	).Scan(&deliveryCount)
+	if err != nil || deliveryCount == 0 {
+		t.Error("expected queued delivery row for executive, found none")
+	}
+
+	// End-to-end: GetInbox (delivery-based routing engaged) must return the
+	// chat notification keyed on subject='chat:<project>'.
+	inboxMsgs, err := d.GetInbox("myproject", "cto", false, 10)
+	if err != nil {
+		t.Fatalf("GetInbox: %v", err)
+	}
+	foundChat := false
+	for _, m := range inboxMsgs {
+		if m.Subject == "chat:myproject" && m.To == "cto" {
+			foundChat = true
+			break
+		}
+	}
+	if !foundChat {
+		t.Errorf("expected chat:myproject notification in cto inbox, got %d messages: %+v", len(inboxMsgs), inboxMsgs)
+	}
 }
 
 func TestChatSendChatNotEnabled(t *testing.T) {

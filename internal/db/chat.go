@@ -70,6 +70,21 @@ func (d *DB) InsertChatMessage(project, senderEmail, content string) (*models.Ch
 		return nil, fmt.Errorf("insert inbox message: %w", err)
 	}
 
+	// Stamp the matching deliveries row so GetInboxViaDeliveries surfaces the
+	// notification — GetInbox switches to delivery-based routing whenever
+	// HasDeliveries() is true, which is always the case in production.
+	// Without this row the inbox INSERT above is invisible to the runner's
+	// chat-gate (CodeFire #101, smoke 2026-05-28).
+	deliveryID := uuid.New().String()
+	_, err = tx.Exec(
+		`INSERT INTO deliveries (id, message_id, to_agent, state, sequence_number, created_at, project)
+		 VALUES (?, ?, ?, 'queued', 0, ?, ?)`,
+		deliveryID, inboxID, recipient.String, now, project,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("insert delivery: %w", err)
+	}
+
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
 	}
