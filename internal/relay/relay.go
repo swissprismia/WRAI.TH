@@ -19,6 +19,7 @@ import (
 	"agent-relay/internal/web"
 	"agent-relay/internal/workflow"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/mark3labs/mcp-go/server"
 )
 
@@ -27,6 +28,7 @@ type Relay struct {
 	MCPServer      *server.MCPServer
 	HTTP           *server.StreamableHTTPServer
 	DB             *db.DB
+	ObservatoryDB  *pgxpool.Pool // nil when observatory Postgres is unavailable; handlers must return 503
 	Registry       *SessionRegistry
 	Ingester       *ingest.Ingester
 	VaultWatcher   *vault.Watcher
@@ -201,10 +203,23 @@ func New(database *db.DB, ingester *ingest.Ingester, vaultWatcher *vault.Watcher
 
 	chatStaticFS, _ := fs.Sub(web.StaticFiles, "static/chat")
 
+	// Observatory Postgres pool — non-fatal: relay keeps running if unavailable.
+	var obsDB *pgxpool.Pool
+	if cfg.ObservatoryDBURL != "" {
+		var err error
+		obsDB, err = db.NewObservatoryDB(context.Background(), cfg.ObservatoryDBURL)
+		if err != nil {
+			log.Printf("observatory: pool unavailable (non-fatal): %v", err)
+		} else {
+			log.Println("observatory: postgres pool ready")
+		}
+	}
+
 	return &Relay{
 		MCPServer:      mcpSrv,
 		HTTP:           httpSrv,
 		DB:             database,
+		ObservatoryDB:  obsDB,
 		Registry:       registry,
 		Ingester:       ingester,
 		VaultWatcher:   vaultWatcher,
@@ -267,8 +282,11 @@ func (r *Relay) buildMiddlewareChain(handler http.Handler) http.Handler {
 	return handler
 }
 
-// Shutdown gracefully stops the HTTP server.
+// Shutdown gracefully stops the HTTP server and releases pooled resources.
 func (r *Relay) Shutdown(ctx context.Context) error {
+	if r.ObservatoryDB != nil {
+		r.ObservatoryDB.Close()
+	}
 	if r.httpServer != nil {
 		return r.httpServer.Shutdown(ctx)
 	}
