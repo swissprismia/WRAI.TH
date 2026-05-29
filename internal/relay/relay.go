@@ -203,15 +203,17 @@ func New(database *db.DB, ingester *ingest.Ingester, vaultWatcher *vault.Watcher
 
 	chatStaticFS, _ := fs.Sub(web.StaticFiles, "static/chat")
 
-	// Observatory Postgres pool — non-fatal: relay keeps running if unavailable.
+	// Observatory Postgres pool + schema migrations — non-fatal: relay keeps running if unavailable.
 	var obsDB *pgxpool.Pool
 	if cfg.ObservatoryDBURL != "" {
 		var err error
 		obsDB, err = db.NewObservatoryDB(context.Background(), cfg.ObservatoryDBURL)
 		if err != nil {
-			log.Printf("observatory: pool unavailable (non-fatal): %v", err)
+			log.Printf("observatory: pool init failed (non-fatal): %v", err)
+		} else if err = db.RunObservatoryMigrations(context.Background(), obsDB); err != nil {
+			log.Printf("observatory: migration failed (non-fatal): %v", err)
 		} else {
-			log.Println("observatory: postgres pool ready")
+			log.Println("observatory: pool ready, migrations applied")
 		}
 	}
 
@@ -236,16 +238,29 @@ func New(database *db.DB, ingester *ingest.Ingester, vaultWatcher *vault.Watcher
 }
 
 // ListenAndServe starts a composite HTTP server that serves:
-//   - /mcp        → MCP Streamable HTTP handler
-//   - /api/*      → REST API for the web UI
-//   - /chat/**    → Chat routes (EasyAuth, no Bearer required; only when WRAITH_CHAT_ENABLED=1)
-//   - /*          → Embedded static files (web UI)
+//   - /mcp                          → MCP Streamable HTTP handler
+//   - /api/*                        → REST API for the web UI
+//   - /chat/**                      → Chat routes (EasyAuth, no Bearer required; only when WRAITH_CHAT_ENABLED=1)
+//   - /observatory/api/v1/ingest/*  → Observatory ingest (no auth; only when WRAITH_OBSERVATORY_ENABLED=1)
+//   - /observatory/api/v1/sessions/*, /observatory/api/v1/tasks/* → Observatory read (EasyAuth)
+//   - /*                            → Embedded static files (web UI)
 func (r *Relay) ListenAndServe(addr string) error {
 	// chatMux holds routes that bypass bearer auth (chat uses EasyAuth).
 	// Requests hitting /chat/** are served directly, before the auth middleware chain.
 	chatMux := http.NewServeMux()
 	if r.Config.ChatEnabled {
 		chatMux.HandleFunc("/chat/", r.ServeChat)
+	}
+
+	// observatoryMux splits auth: ingest routes carry no auth (trusted via ACA
+	// internal networking); read routes are gated by the EasyAuth middleware.
+	var observatoryMux *http.ServeMux
+	if r.Config.ObservatoryEnabled {
+		observatoryMux = http.NewServeMux()
+		observatoryMux.HandleFunc("/observatory/api/v1/ingest/", r.ServeObservatoryIngest)
+		readHandler := r.ObservatoryEasyAuthMiddleware(http.HandlerFunc(r.ServeObservatoryRead))
+		observatoryMux.Handle("/observatory/api/v1/sessions/", readHandler)
+		observatoryMux.Handle("/observatory/api/v1/tasks/", readHandler)
 	}
 
 	// mainMux holds routes protected by the full middleware chain.
@@ -261,10 +276,13 @@ func (r *Relay) ListenAndServe(addr string) error {
 
 	protectedHandler := r.buildMiddlewareChain(mainMux)
 
-	// Top-level router: /chat/** bypasses bearer auth; everything else goes through it.
+	// Top-level router: chat and observatory bypass bearer auth; everything else goes through it.
 	topMux := http.NewServeMux()
 	if r.Config.ChatEnabled {
 		topMux.Handle("/chat/", chatMux)
+	}
+	if r.Config.ObservatoryEnabled {
+		topMux.Handle("/observatory/", observatoryMux)
 	}
 	topMux.Handle("/", protectedHandler)
 
