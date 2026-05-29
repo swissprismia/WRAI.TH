@@ -19,12 +19,13 @@
 }
 
 html,
-body {
+body,
+#root {
   margin: 0;
   padding: 0;
+  height: 100%;
   background: var(--bg);
   color: var(--text);
-  min-height: 100%;
 }
 
 a {
@@ -42,73 +43,202 @@ pre {
   font-size: 0.85rem;
 }
 
-.shell {
-  max-width: 880px;
-  margin: 0 auto;
-  padding: 1.5rem 1.25rem 2rem;
-  min-height: 100vh;
+/* ---- App shell: sidebar + main, locked to the viewport ---- */
+
+.app {
   display: flex;
-  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
 }
 
-.header {
+.sidebar {
+  width: 288px;
+  flex-shrink: 0;
+  background: var(--bg-elevated);
+  border-right: 1px solid var(--border);
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-  padding-bottom: 0.75rem;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebar-head {
+  padding: 1rem 1.1rem;
   border-bottom: 1px solid var(--border);
 }
 
-.header h1 {
-  font-size: 1.1rem;
-  font-weight: 600;
+.sidebar-head h1 {
   margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
   letter-spacing: 0.02em;
 }
 
-.back-link {
-  font-size: 0.85rem;
+.sidebar-error {
+  margin: 0.75rem;
+}
+
+.sidebar-empty {
+  padding: 1rem 1.1rem;
   color: var(--text-dim);
+  font-size: 0.85rem;
 }
 
-.back-link::before {
-  content: "← ";
+.conv-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
-.project-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 0.75rem;
-}
-
-.project-card {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.95rem 1.1rem;
-  color: var(--text);
+.conv {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  padding: 0.7rem 1.1rem;
+  border-bottom: 1px solid var(--border);
+  border-left: 2px solid transparent;
+  color: var(--text);
 }
 
-.project-card:hover {
-  border-color: var(--accent);
+.conv:hover {
+  background: rgba(255, 255, 255, 0.03);
   text-decoration: none;
 }
 
-.project-card .name {
-  font-weight: 600;
-  font-size: 1rem;
+.conv--active {
+  background: rgba(88, 166, 255, 0.12);
+  border-left-color: var(--accent);
 }
 
-.project-card .slug {
-  font-size: 0.75rem;
+.conv-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.conv-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conv--unread .conv-name {
+  color: var(--text);
+}
+
+.conv-time {
+  flex-shrink: 0;
+  font-size: 0.7rem;
   color: var(--text-mute);
+}
+
+.conv-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.conv-preview {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conv--unread .conv-preview {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.badge {
+  flex-shrink: 0;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--accent-dim);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ---- Main column ---- */
+
+.main {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebar-toggle {
+  display: none;
+  position: absolute;
+  top: 0.65rem;
+  left: 0.65rem;
+  z-index: 10;
+  width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.scrim {
+  display: none;
+}
+
+.empty-chat {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  text-align: center;
+  color: var(--text-dim);
+}
+
+.chat-page {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-header {
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.chat-header h2 {
+  margin: 0;
+  font-size: 1.15rem;
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
+
+/* ---- Message list ---- */
 
 .chat-view {
   flex: 1;
@@ -128,6 +258,20 @@ pre {
   min-height: 0;
 }
 
+.day-sep {
+  align-self: center;
+  margin: 0.4rem 0;
+  font-size: 0.72rem;
+  color: var(--text-mute);
+}
+
+.day-sep span {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.12rem 0.65rem;
+}
+
 .message {
   max-width: 80%;
   padding: 0.6rem 0.85rem;
@@ -137,7 +281,17 @@ pre {
   font-size: 0.92rem;
   line-height: 1.4;
   word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* Human messages are plain text — preserve their newlines. CTO messages are
+   rendered as Markdown (.markdown), where block elements handle spacing. */
+.message .body {
   white-space: pre-wrap;
+}
+
+.message .body.markdown {
+  white-space: normal;
 }
 
 .message.human {
@@ -163,6 +317,28 @@ pre {
   color: var(--text-dim);
 }
 
+/* ---- Jump to latest ---- */
+
+.jump-latest {
+  position: absolute;
+  left: 50%;
+  bottom: 5.5rem;
+  transform: translateX(-50%);
+  background: var(--accent-dim);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 0.4rem 0.95rem;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  z-index: 5;
+}
+
+/* ---- Composer ---- */
+
 .composer {
   display: flex;
   gap: 0.5rem;
@@ -180,9 +356,10 @@ pre {
   padding: 0.6rem 0.75rem;
   font: inherit;
   font-size: 0.92rem;
-  resize: vertical;
+  resize: none;
   min-height: 2.6rem;
-  max-height: 12rem;
+  max-height: 12.5rem;
+  overflow-y: auto;
   outline: none;
 }
 
@@ -209,6 +386,29 @@ pre {
   cursor: not-allowed;
 }
 
+.load-more {
+  align-self: center;
+  background: var(--bg-elevated);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  margin-bottom: 0.25rem;
+}
+
+.load-more:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.load-more:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 .empty {
   padding: 1.75rem;
   text-align: center;
@@ -227,4 +427,173 @@ pre {
   border-radius: 8px;
   font-size: 0.9rem;
   margin: 0.5rem 0;
+}
+
+.composer-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.retry {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  border-radius: 6px;
+  padding: 0.2rem 0.65rem;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.retry:hover:not(:disabled) {
+  background: rgba(248, 81, 73, 0.12);
+}
+
+/* ---- Markdown rendering inside CTO bubbles ---- */
+
+.markdown > :first-child {
+  margin-top: 0;
+}
+
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown p {
+  margin: 0.5rem 0;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  margin: 0.8rem 0 0.4rem;
+  line-height: 1.25;
+}
+
+.markdown h1 {
+  font-size: 1.25rem;
+}
+.markdown h2 {
+  font-size: 1.15rem;
+}
+.markdown h3 {
+  font-size: 1.02rem;
+}
+.markdown h4 {
+  font-size: 0.95rem;
+}
+
+.markdown ul,
+.markdown ol {
+  margin: 0.5rem 0;
+  padding-left: 1.4rem;
+}
+
+.markdown li {
+  margin: 0.2rem 0;
+}
+
+.markdown li > p {
+  margin: 0;
+}
+
+.markdown a {
+  color: var(--accent);
+}
+
+.markdown code {
+  background: rgba(110, 118, 129, 0.18);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+}
+
+.markdown pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 0.9rem;
+  overflow-x: auto;
+  margin: 0.6rem 0;
+}
+
+.markdown pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+}
+
+.markdown blockquote {
+  margin: 0.6rem 0;
+  padding-left: 0.85rem;
+  border-left: 3px solid var(--border);
+  color: var(--text-dim);
+}
+
+.markdown table {
+  border-collapse: collapse;
+  margin: 0.6rem 0;
+  font-size: 0.88rem;
+  display: block;
+  overflow-x: auto;
+}
+
+.markdown th,
+.markdown td {
+  border: 1px solid var(--border);
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+}
+
+.markdown th {
+  background: var(--bg);
+}
+
+.markdown hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 0.8rem 0;
+}
+
+.markdown img {
+  max-width: 100%;
+  border-radius: 6px;
+}
+
+/* ---- Mobile: sidebar becomes a slide-over drawer ---- */
+
+@media (max-width: 720px) {
+  .sidebar {
+    position: absolute;
+    z-index: 30;
+    height: 100%;
+    width: 84%;
+    max-width: 320px;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+  }
+
+  .app--sidebar-open .sidebar {
+    transform: translateX(0);
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.6);
+  }
+
+  .app--sidebar-open .scrim {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 25;
+    background: rgba(0, 0, 0, 0.5);
+  }
+
+  .sidebar-toggle {
+    display: inline-flex;
+  }
+
+  .chat-page {
+    padding-top: 3rem;
+  }
 }
