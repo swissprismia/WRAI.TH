@@ -197,12 +197,44 @@ func (d *DB) GetChatHistory(project, before string, limit int) ([]models.ChatMes
 	return scanChatMessages(rows)
 }
 
-// ListChatProjects returns projects where chat_executive_role IS NOT NULL.
+// ListChatProjects returns chat-enabled projects with their unread count, last
+// message preview, and latest timestamp, sorted unread-first then most-recent.
+//
+// Unread combines two sources because executive replies are only drained from
+// the inbox into chat_messages when their project is actively polled (see
+// GetChatMessagesSince): drained replies are counted via chat_messages
+// (recipient='human', read_at IS NULL), and not-yet-drained replies via the
+// messages inbox (from_agent = the project's executive role, read_at IS NULL).
+// A given reply is counted in exactly one source — the drain stamps the inbox
+// row read_at at the same instant it creates the chat_messages row.
 func (d *DB) ListChatProjects() ([]models.ChatProject, error) {
 	rows, err := d.ro().Query(
-		`SELECT name, chat_executive_role FROM projects
-		 WHERE chat_executive_role IS NOT NULL AND chat_executive_role != ''
-		 ORDER BY name`,
+		`SELECT p.name, p.chat_executive_role,
+		        COALESCE(last.created_at, '')  AS latest_ts,
+		        COALESCE(last.content, '')      AS last_preview,
+		        COALESCE(last.sender_role, '')  AS last_role,
+		        COALESCE(cm.unread, 0) + COALESCE(ib.unread, 0) AS unread
+		 FROM projects p
+		 LEFT JOIN (
+		     SELECT project,
+		            SUM(CASE WHEN recipient = 'human' AND read_at IS NULL THEN 1 ELSE 0 END) AS unread
+		     FROM chat_messages GROUP BY project
+		 ) cm ON cm.project = p.name
+		 LEFT JOIN (
+		     SELECT c.project, c.content, c.sender_role, c.created_at
+		     FROM chat_messages c
+		     JOIN (SELECT project, MAX(created_at) AS mx FROM chat_messages GROUP BY project) mm
+		       ON c.project = mm.project AND c.created_at = mm.mx
+		 ) last ON last.project = p.name
+		 LEFT JOIN (
+		     SELECT m.project, COUNT(*) AS unread
+		     FROM messages m
+		     JOIN projects p2 ON p2.name = m.project
+		     WHERE m.from_agent = p2.chat_executive_role AND m.read_at IS NULL
+		     GROUP BY m.project
+		 ) ib ON ib.project = p.name
+		 WHERE p.chat_executive_role IS NOT NULL AND p.chat_executive_role != ''
+		 ORDER BY unread DESC, latest_ts DESC, p.name`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("query chat projects: %w", err)
@@ -212,12 +244,39 @@ func (d *DB) ListChatProjects() ([]models.ChatProject, error) {
 	var projects []models.ChatProject
 	for rows.Next() {
 		var p models.ChatProject
-		if err := rows.Scan(&p.Slug, &p.ChatExecutiveRole); err != nil {
+		var lastRole string
+		if err := rows.Scan(&p.Slug, &p.ChatExecutiveRole, &p.LatestTS, &p.LastPreview, &lastRole, &p.Unread); err != nil {
 			return nil, err
+		}
+		if lastRole != "" {
+			if lastRole == "human" {
+				p.LastKind = "human"
+			} else {
+				p.LastKind = "cto"
+			}
+		}
+		if len(p.LastPreview) > 140 {
+			p.LastPreview = p.LastPreview[:140] + "…"
 		}
 		projects = append(projects, p)
 	}
 	return projects, rows.Err()
+}
+
+// MarkChatRead stamps read_at on all unread CTO→human messages for a project,
+// clearing its unread badge. Idempotent. Returns the number of rows marked.
+func (d *DB) MarkChatRead(project string) (int, error) {
+	now := time.Now().UTC().Format(memoryTimeFmt)
+	res, err := d.conn.Exec(
+		`UPDATE chat_messages SET read_at = ?
+		 WHERE project = ? AND recipient = 'human' AND read_at IS NULL`,
+		now, project,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("mark chat read: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
 }
 
 // SetChatExecutiveRole sets projects.chat_executive_role for the given project (idempotent).

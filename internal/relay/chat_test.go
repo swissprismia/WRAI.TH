@@ -317,6 +317,73 @@ func TestChatHistoryPaginationRoute(t *testing.T) {
 	}
 }
 
+func TestChatUnreadCountAndMarkRead(t *testing.T) {
+	r := testChatRelay(t, true, false)
+
+	r.DB.EnsureProject("unreadproj")
+	if _, err := r.DB.SetChatExecutiveRole("unreadproj", "cto"); err != nil {
+		t.Fatalf("SetChatExecutiveRole: %v", err)
+	}
+
+	findUnread := func() int {
+		t.Helper()
+		projects, err := r.DB.ListChatProjects()
+		if err != nil {
+			t.Fatalf("ListChatProjects: %v", err)
+		}
+		for _, p := range projects {
+			if p.Slug == "unreadproj" {
+				return p.Unread
+			}
+		}
+		t.Fatalf("unreadproj not found in ListChatProjects")
+		return -1
+	}
+
+	// A human message is outbound (recipient='cto') — never counted as unread.
+	if _, err := r.DB.InsertChatMessage("unreadproj", "user@example.com", "hi cto"); err != nil {
+		t.Fatalf("InsertChatMessage: %v", err)
+	}
+	if got := findUnread(); got != 0 {
+		t.Fatalf("after human message, expected unread 0, got %d", got)
+	}
+
+	// An undrained executive reply sits in the inbox — counted via the inbox branch.
+	if _, err := r.DB.InsertMessage("unreadproj", "cto", "cto", "notification",
+		"chat:unreadproj", "reply one", "{}", "P2", 0, nil, nil); err != nil {
+		t.Fatalf("InsertMessage: %v", err)
+	}
+	if got := findUnread(); got != 1 {
+		t.Fatalf("after undrained reply, expected unread 1, got %d", got)
+	}
+
+	// Draining (what a poll does) moves it into chat_messages — still unread,
+	// now via the chat_messages branch, so it must not double-count.
+	if _, err := r.DB.GetChatMessagesSince("unreadproj", "2000-01-01T00:00:00Z"); err != nil {
+		t.Fatalf("GetChatMessagesSince: %v", err)
+	}
+	if got := findUnread(); got != 1 {
+		t.Fatalf("after drain, expected unread 1 (no double count), got %d", got)
+	}
+
+	// Opening the chat marks it read.
+	n, err := r.DB.MarkChatRead("unreadproj")
+	if err != nil {
+		t.Fatalf("MarkChatRead: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected MarkChatRead to mark 1 row, got %d", n)
+	}
+	if got := findUnread(); got != 0 {
+		t.Fatalf("after mark read, expected unread 0, got %d", got)
+	}
+
+	// Idempotent — nothing left to mark.
+	if n2, err := r.DB.MarkChatRead("unreadproj"); err != nil || n2 != 0 {
+		t.Errorf("second MarkChatRead: n=%d err=%v (want 0, nil)", n2, err)
+	}
+}
+
 // --- MCP tool tests ---
 
 func TestSetChatExecutiveIdempotent(t *testing.T) {
