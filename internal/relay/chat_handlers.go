@@ -165,6 +165,25 @@ func (r *Relay) serveChatSend(w http.ResponseWriter, req *http.Request) {
 	chatJSON(w, http.StatusCreated, map[string]any{"entry": msgToEntry(*msg)})
 }
 
+// serveChatMarkRead handles POST /chat/api/p/:slug/read — clears the project's
+// unread badge by stamping read_at on its unread CTO→human messages.
+func (r *Relay) serveChatMarkRead(w http.ResponseWriter, req *http.Request) {
+	if _, ok := r.chatIdentity(w, req); !ok {
+		return
+	}
+	slug := chatSlug(req.URL.Path, "/chat/api/p/")
+	if slug == "" {
+		chatJSON(w, http.StatusBadRequest, map[string]string{"error": "missing project slug"})
+		return
+	}
+	n, err := r.DB.MarkChatRead(slug)
+	if err != nil {
+		chatJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to mark read"})
+		return
+	}
+	chatJSON(w, http.StatusOK, map[string]any{"marked": n})
+}
+
 // serveChatPoll handles GET /chat/api/p/:slug/poll?since=<iso>
 func (r *Relay) serveChatPoll(w http.ResponseWriter, req *http.Request) {
 	if _, ok := r.chatIdentity(w, req); !ok {
@@ -253,6 +272,9 @@ func (r *Relay) ServeChat(w http.ResponseWriter, req *http.Request) {
 
 	case strings.HasPrefix(path, "/chat/api/p/") && strings.HasSuffix(path, "/poll") && req.Method == http.MethodGet:
 		r.serveChatPoll(w, req)
+
+	case strings.HasPrefix(path, "/chat/api/p/") && strings.HasSuffix(path, "/read") && req.Method == http.MethodPost:
+		r.serveChatMarkRead(w, req)
 
 	case strings.HasPrefix(path, "/chat/api/p/") && strings.HasSuffix(path, "/history") && req.Method == http.MethodGet:
 		r.serveChatHistory(w, req)

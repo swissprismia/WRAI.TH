@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link, Navigate, useParams } from "react-router-dom";
+import { Navigate, useOutletContext, useParams } from "react-router-dom";
 
 import ChatView from "../components/chat-view";
+import type { ChatContext } from "../components/Layout";
 import { getHistory, type ChatEntry } from "../lib/api";
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -21,31 +22,30 @@ export default function ChatPage() {
 function ChatPageInner({ slug }: { slug: string }) {
   const [initialEntries, setInitialEntries] = useState<ChatEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const { refreshProjects } = useOutletContext<ChatContext>();
 
   useEffect(() => {
+    setInitialEntries([]);
+    setError(null);
     getHistory(slug)
       .then(setInitialEntries)
       .catch((err: unknown) => setError((err as Error).message));
   }, [slug]);
 
   return (
-    <div className="shell">
-      <header className="header">
-        <h1>
-          <Link to="/">CTO Chat</Link>
-        </h1>
+    <div className="chat-page">
+      <header className="chat-header">
+        <h2>{slug}</h2>
       </header>
-      <div style={{ marginBottom: "0.75rem" }}>
-        <Link className="back-link" to="/">
-          Projects
-        </Link>
-        <h2 style={{ margin: "0.5rem 0 0", fontSize: "1.25rem" }}>{slug}</h2>
-      </div>
       {error ? <div className="error">Relay error: {error}</div> : null}
+      {/* key={slug} remounts the view on conversation switch — fresh entries,
+          scroll position, and poll cursor. */}
       <ChatView
+        key={slug}
         slug={slug}
         initialEntries={initialEntries}
         pollIntervalMs={POLL_INTERVAL_MS}
+        onMarkedRead={refreshProjects}
       />
     </div>
   );

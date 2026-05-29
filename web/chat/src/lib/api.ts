@@ -1,7 +1,10 @@
 export interface Project {
   slug: string;
-  name: string | null;
   executive_role: string;
+  latest_ts?: string;
+  last_preview?: string;
+  last_kind?: "human" | "cto";
+  unread: number;
 }
 
 export interface ChatEntry {
@@ -49,10 +52,19 @@ export async function pollMessages(slug: string, since: string | null): Promise<
   return data.messages ?? [];
 }
 
-export async function getHistory(slug: string): Promise<ChatEntry[]> {
-  const resp = await fetch(`/chat/api/p/${encodeURIComponent(slug)}/history`, {
-    cache: "no-store",
-  });
+export async function getHistory(
+  slug: string,
+  before?: string | null,
+  limit?: number,
+): Promise<ChatEntry[]> {
+  const params = new URLSearchParams();
+  if (before) params.set("before", before);
+  if (limit) params.set("limit", String(limit));
+  const qs = params.toString();
+  const resp = await fetch(
+    `/chat/api/p/${encodeURIComponent(slug)}/history${qs ? `?${qs}` : ""}`,
+    { cache: "no-store" },
+  );
   if (!resp.ok) {
     const body = await resp.text().catch(() => "");
     throw new Error(`history HTTP ${resp.status}${body ? `: ${body}` : ""}`);
@@ -60,4 +72,14 @@ export async function getHistory(slug: string): Promise<ChatEntry[]> {
   const data = (await resp.json()) as { messages?: ChatEntry[]; error?: string };
   if (data.error) throw new Error(data.error);
   return data.messages ?? [];
+}
+
+// markRead clears a project's unread badge. Best-effort: failures are swallowed
+// so a transient relay hiccup never blocks the chat.
+export async function markRead(slug: string): Promise<void> {
+  try {
+    await fetch(`/chat/api/p/${encodeURIComponent(slug)}/read`, { method: "POST" });
+  } catch {
+    /* ignore */
+  }
 }

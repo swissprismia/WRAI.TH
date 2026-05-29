@@ -23,8 +23,9 @@ type Config struct {
 	ChatEnabled bool // WRAITH_CHAT_ENABLED: enable /chat/** routes (default: false)
 	DevMode     bool // WRAITH_DEV_MODE: allow missing EasyAuth header (dev identity fallback)
 
-	// Observatory (ADF-083)
-	ObservatoryDBURL string // WRAITH_OBSERVATORY_DB_URL: Postgres DSN for observatory data; empty = disabled
+	// Observatory ingest service (ADF-083)
+	ObservatoryEnabled bool   // WRAITH_OBSERVATORY_ENABLED: enable observatory ingest routes (default: false)
+	ObservatoryDBURL   string // WRAITH_OBSERVATORY_DB_URL: Postgres DSN for observatory data; empty = disabled
 }
 
 // Load reads configuration from environment variables with safe defaults.
@@ -73,6 +74,7 @@ func Load() Config {
 
 	cfg.ChatEnabled = os.Getenv("WRAITH_CHAT_ENABLED") == "1"
 	cfg.DevMode = os.Getenv("WRAITH_DEV_MODE") == "1"
+	cfg.ObservatoryEnabled = os.Getenv("WRAITH_OBSERVATORY_ENABLED") == "1"
 	cfg.ObservatoryDBURL = os.Getenv("WRAITH_OBSERVATORY_DB_URL")
 
 	return cfg
