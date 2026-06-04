@@ -1383,6 +1383,32 @@ func (h *Handlers) HandleStartTask(ctx context.Context, req mcp.CallToolRequest)
 	return h.resultJSONTracked(project, agent, "start_task", task)
 }
 
+// readyBlockedParent flips a blocked parent task back to "pending" when every
+// one of its sub-tasks has reached a terminal state (done/cancelled), so the
+// pull-driven worker pool can rediscover and re-claim it. Task state changes
+// are otherwise silent: nothing re-scans blocked tasks in a pool topology, so
+// without this trigger a parent blocked on its sub-tasks stays invisible
+// forever once the blockers clear. ResetTask clears assignment, timestamps,
+// result, and blocked_reason as part of the flip. No-op unless the parent is
+// currently blocked AND all sub-tasks are terminal.
+func (h *Handlers) readyBlockedParent(project, agent, parentTaskID string) {
+	parent, err := h.db.GetTask(parentTaskID, project)
+	if err != nil || parent == nil || parent.Status != "blocked" {
+		return
+	}
+	allDone, total, _ := h.db.CheckSubtasksComplete(parentTaskID, project)
+	if !allDone {
+		return
+	}
+	reset, err := h.db.ResetTask(parentTaskID, agent, project)
+	if err != nil {
+		return
+	}
+	h.events.Emit(MCPEvent{Type: "task", Action: "ready", Agent: agent, Project: project, Target: reset.DispatchedBy, Label: reset.Title})
+	h.registry.Notify(project, reset.DispatchedBy, agent,
+		fmt.Sprintf("Task re-readied (all %d subtasks resolved): %s", total, reset.Title), reset.ID)
+}
+
 func (h *Handlers) HandleCompleteTask(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	project := resolveProject(ctx, req)
 	agent := resolveAgent(ctx, req)
@@ -1433,6 +1459,8 @@ func (h *Handlers) HandleCompleteTask(ctx context.Context, req mcp.CallToolReque
 					fmt.Sprintf("Subtask done (%d/%d): %s → %s", doneCount, total, task.Title, parent.Title), parent.ID)
 			}
 		}
+		// Task-ready trigger: re-ready the parent if it was blocked on these subtasks
+		h.readyBlockedParent(project, agent, *task.ParentTaskID)
 	}
 
 	return h.resultJSONTracked(project, agent, "complete_task", task)
@@ -1533,6 +1561,8 @@ func (h *Handlers) HandleCancelTask(ctx context.Context, req mcp.CallToolRequest
 					fmt.Sprintf("Subtask cancelled (%d/%d resolved): %s → %s", doneCount, total, task.Title, parent.Title), parent.ID)
 			}
 		}
+		// Task-ready trigger: re-ready the parent if it was blocked on these subtasks
+		h.readyBlockedParent(project, agent, *task.ParentTaskID)
 	}
 
 	return h.resultJSONTracked(project, agent, "cancel_task", task)
@@ -1653,6 +1683,7 @@ func (h *Handlers) HandleBatchCompleteTasks(ctx context.Context, req mcp.CallToo
 
 	var completed []string
 	var errors []string
+	parentIDs := map[string]bool{}
 	for _, item := range items {
 		taskID, err := h.resolveTaskID(item.TaskID, project)
 		if err != nil {
@@ -1665,7 +1696,15 @@ func (h *Handlers) HandleBatchCompleteTasks(ctx context.Context, req mcp.CallToo
 			continue
 		}
 		completed = append(completed, taskID)
+		if task.ParentTaskID != nil {
+			parentIDs[*task.ParentTaskID] = true
+		}
 		h.events.Emit(MCPEvent{Type: "task", Action: "complete", Agent: agent, Project: project, Label: task.Title})
+	}
+
+	// Task-ready trigger: re-ready any parent that was blocked on the completed subtasks
+	for parentID := range parentIDs {
+		h.readyBlockedParent(project, agent, parentID)
 	}
 
 	return h.resultJSONTracked(project, agent, "batch_complete_tasks", map[string]any{

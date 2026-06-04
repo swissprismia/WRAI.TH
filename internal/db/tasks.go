@@ -12,11 +12,14 @@ import (
 
 // Valid task state transitions
 // "done" and "cancelled" are reachable from any state (flexible cleanup)
+// "blocked" → "pending" re-readies a parent whose blocking sub-tasks have all
+// resolved, so pull-driven workers can rediscover and re-claim it (task-ready
+// trigger; ResetTask clears assignment, timestamps, result, and blocked_reason).
 var validTransitions = map[string][]string{
 	"pending":     {"accepted", "in-progress", "done", "cancelled"},
 	"accepted":    {"in-progress", "done", "cancelled"},
 	"in-progress": {"done", "blocked", "cancelled"},
-	"blocked":     {"in-progress", "done", "cancelled"},
+	"blocked":     {"pending", "in-progress", "done", "cancelled"},
 	"done":        {"cancelled"},
 	"cancelled":   {},
 }
