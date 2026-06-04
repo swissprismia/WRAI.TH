@@ -3,6 +3,7 @@ package relay
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -1261,6 +1262,129 @@ func TestTaskSubtaskCompletion(t *testing.T) {
 	parentData := parseJSON(t, getRes)
 	if parentData["title"] != "Parent task" {
 		t.Errorf("expected 'Parent task', got %v", parentData["title"])
+	}
+}
+
+// --- Task-ready trigger (blocked parent auto re-readied) ---
+
+// makeBlockedParentWithSubs dispatches a parent, walks it to blocked, and
+// dispatches n subtasks under it. Returns (parentID, subIDs).
+func makeBlockedParentWithSubs(t *testing.T, h *Handlers, n int) (string, []string) {
+	t.Helper()
+	parentRes, _ := h.HandleDispatchTask(ctx, call(map[string]any{
+		"project": "p1", "as": "bot-a", "profile": "dev", "title": "Parent task",
+	}))
+	parentID := parseJSON(t, parentRes)["task"].(map[string]any)["id"].(string)
+	_, _ = h.HandleClaimTask(ctx, call(map[string]any{"project": "p1", "as": "bot-a", "task_id": parentID}))
+	_, _ = h.HandleStartTask(ctx, call(map[string]any{"project": "p1", "as": "bot-a", "task_id": parentID}))
+
+	var subIDs []string
+	for i := 0; i < n; i++ {
+		subRes, _ := h.HandleDispatchTask(ctx, call(map[string]any{
+			"project": "p1", "as": "bot-a", "profile": "dev",
+			"title": fmt.Sprintf("Subtask %d", i+1), "parent_task_id": parentID,
+		}))
+		subIDs = append(subIDs, parseJSON(t, subRes)["task"].(map[string]any)["id"].(string))
+	}
+
+	_, _ = h.HandleBlockTask(ctx, call(map[string]any{
+		"project": "p1", "as": "bot-a", "task_id": parentID, "reason": "waiting on subtasks",
+	}))
+	return parentID, subIDs
+}
+
+func taskStatus(t *testing.T, h *Handlers, taskID string) string {
+	t.Helper()
+	res, _ := h.HandleGetTask(ctx, call(map[string]any{"project": "p1", "task_id": taskID}))
+	return parseJSON(t, res)["status"].(string)
+}
+
+func TestCompleteSubtaskReadiesBlockedParent(t *testing.T) {
+	h := testHandlers(t)
+	_, _ = h.HandleRegisterAgent(ctx, call(map[string]any{"project": "p1", "name": "bot-a", "role": "dev"}))
+	parentID, subIDs := makeBlockedParentWithSubs(t, h, 2)
+
+	// First subtask done — parent must stay blocked (one blocker remains)
+	_, _ = h.HandleCompleteTask(ctx, call(map[string]any{
+		"project": "p1", "as": "bot-a", "task_id": subIDs[0], "result": "done",
+	}))
+	if got := taskStatus(t, h, parentID); got != "blocked" {
+		t.Errorf("parent after 1/2 subtasks: expected blocked, got %v", got)
+	}
+
+	// Last subtask done — parent flips blocked → pending with cleared fields
+	_, _ = h.HandleCompleteTask(ctx, call(map[string]any{
+		"project": "p1", "as": "bot-a", "task_id": subIDs[1], "result": "done",
+	}))
+	getRes, _ := h.HandleGetTask(ctx, call(map[string]any{"project": "p1", "task_id": parentID}))
+	parent := parseJSON(t, getRes)
+	if parent["status"] != "pending" {
+		t.Errorf("parent after 2/2 subtasks: expected pending, got %v", parent["status"])
+	}
+	if parent["assigned_to"] != nil {
+		t.Errorf("expected assigned_to cleared, got %v", parent["assigned_to"])
+	}
+	if parent["blocked_reason"] != nil {
+		t.Errorf("expected blocked_reason cleared, got %v", parent["blocked_reason"])
+	}
+}
+
+func TestCancelSubtaskReadiesBlockedParent(t *testing.T) {
+	h := testHandlers(t)
+	_, _ = h.HandleRegisterAgent(ctx, call(map[string]any{"project": "p1", "name": "bot-a", "role": "dev"}))
+	parentID, subIDs := makeBlockedParentWithSubs(t, h, 2)
+
+	_, _ = h.HandleCompleteTask(ctx, call(map[string]any{
+		"project": "p1", "as": "bot-a", "task_id": subIDs[0], "result": "done",
+	}))
+	// Cancelled counts as terminal — parent must re-ready
+	_, _ = h.HandleCancelTask(ctx, call(map[string]any{
+		"project": "p1", "as": "bot-a", "task_id": subIDs[1], "reason": "obsolete",
+	}))
+	if got := taskStatus(t, h, parentID); got != "pending" {
+		t.Errorf("parent after complete+cancel: expected pending, got %v", got)
+	}
+}
+
+func TestSubtaskCompletionLeavesUnblockedParentAlone(t *testing.T) {
+	h := testHandlers(t)
+	_, _ = h.HandleRegisterAgent(ctx, call(map[string]any{"project": "p1", "name": "bot-a", "role": "dev"}))
+
+	// Parent stays in-progress (never blocked)
+	parentRes, _ := h.HandleDispatchTask(ctx, call(map[string]any{
+		"project": "p1", "as": "bot-a", "profile": "dev", "title": "Active parent",
+	}))
+	parentID := parseJSON(t, parentRes)["task"].(map[string]any)["id"].(string)
+	_, _ = h.HandleClaimTask(ctx, call(map[string]any{"project": "p1", "as": "bot-a", "task_id": parentID}))
+	_, _ = h.HandleStartTask(ctx, call(map[string]any{"project": "p1", "as": "bot-a", "task_id": parentID}))
+
+	subRes, _ := h.HandleDispatchTask(ctx, call(map[string]any{
+		"project": "p1", "as": "bot-a", "profile": "dev", "title": "Subtask", "parent_task_id": parentID,
+	}))
+	subID := parseJSON(t, subRes)["task"].(map[string]any)["id"].(string)
+
+	_, _ = h.HandleCompleteTask(ctx, call(map[string]any{
+		"project": "p1", "as": "bot-a", "task_id": subID, "result": "done",
+	}))
+	if got := taskStatus(t, h, parentID); got != "in-progress" {
+		t.Errorf("non-blocked parent must be untouched: expected in-progress, got %v", got)
+	}
+}
+
+func TestBatchCompleteReadiesBlockedParent(t *testing.T) {
+	h := testHandlers(t)
+	_, _ = h.HandleRegisterAgent(ctx, call(map[string]any{"project": "p1", "name": "bot-a", "role": "dev"}))
+	parentID, subIDs := makeBlockedParentWithSubs(t, h, 2)
+
+	tasksJSON, _ := json.Marshal([]map[string]any{
+		{"task_id": subIDs[0], "result": "done"},
+		{"task_id": subIDs[1], "result": "done"},
+	})
+	_, _ = h.HandleBatchCompleteTasks(ctx, call(map[string]any{
+		"project": "p1", "as": "bot-a", "tasks": string(tasksJSON),
+	}))
+	if got := taskStatus(t, h, parentID); got != "pending" {
+		t.Errorf("parent after batch complete: expected pending, got %v", got)
 	}
 }
 
