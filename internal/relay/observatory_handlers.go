@@ -595,3 +595,47 @@ func (r *Relay) ObsIngestTaskRuns(w http.ResponseWriter, req *http.Request) {
 	}
 	obsWrite(w, http.StatusAccepted, map[string]string{"status": "stored"})
 }
+
+// ServeObservatoryIngest routes all POST /observatory/api/v1/ingest/* requests.
+// No auth — trust is enforced at the network layer (ACA internal networking).
+// Returns 503 when the observatory pool is nil.
+func (r *Relay) ServeObservatoryIngest(w http.ResponseWriter, req *http.Request) {
+	if !obsCheckPool(r, w) {
+		return
+	}
+
+	path := req.URL.Path
+
+	switch {
+	case path == "/observatory/api/v1/ingest/worker_runs" && req.Method == http.MethodPost:
+		r.ObsIngestWorkerRuns(w, req)
+	case path == "/observatory/api/v1/ingest/sessions/finalize" && req.Method == http.MethodPost:
+		r.ObsIngestSessionsFinalize(w, req)
+	case path == "/observatory/api/v1/ingest/sessions" && req.Method == http.MethodPost:
+		r.ObsIngestSessions(w, req)
+	case path == "/observatory/api/v1/ingest/events" && req.Method == http.MethodPost:
+		r.ObsIngestEvents(w, req)
+	case path == "/observatory/api/v1/ingest/estimates" && req.Method == http.MethodPost:
+		r.ObsIngestEstimates(w, req)
+	case path == "/observatory/api/v1/ingest/task_runs" && req.Method == http.MethodPost:
+		r.ObsIngestTaskRuns(w, req)
+	default:
+		http.NotFound(w, req)
+	}
+}
+
+// obsMatchSub matches /prefix/{id}/suffix where id is at least one character.
+func obsMatchSub(path, prefix, suffix string) bool {
+	after := strings.TrimPrefix(path, prefix)
+	if after == path {
+		return false // prefix not found
+	}
+	// after must be strictly longer than suffix so there is at least one id byte.
+	return strings.HasSuffix(after, suffix) && len(after) > len(suffix)
+}
+
+// obsMatchID matches /prefix/{id} exactly — id is non-empty and contains no slashes.
+func obsMatchID(path, prefix string) bool {
+	after := strings.TrimPrefix(path, prefix)
+	return after != path && after != "" && !strings.Contains(after, "/")
+}
