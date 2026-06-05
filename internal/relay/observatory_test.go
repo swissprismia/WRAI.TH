@@ -159,12 +159,12 @@ func TestObservatoryIntegration_E2E(t *testing.T) {
 
 	// ── 2. Register session ─────────────────────────────────────────────────
 	w = obsPostIngest(t, r, "/observatory/api/v1/ingest/sessions", map[string]any{
-		"session_id":   sessionID,
+		"session_id":    sessionID,
 		"worker_run_id": workerRunID,
-		"spawn_index":  0,
-		"model":        "claude-sonnet-4-6",
-		"started_at":   now.Add(time.Second).Format(time.RFC3339),
-		"profile_slug": profileSlug,
+		"spawn_index":   0,
+		"model":         "claude-sonnet-4-6",
+		"started_at":    now.Add(time.Second).Format(time.RFC3339),
+		"profile_slug":  profileSlug,
 	})
 	obsAssert202(t, w, "register session")
 	var sessResp map[string]string
