@@ -189,18 +189,18 @@ func (r *Relay) serveObsSessionEvents(w http.ResponseWriter, req *http.Request) 
 // ─── token_delta row ─────────────────────────────────────────────────────────
 
 type obsTokenDelta struct {
-	ID                         int64    `json:"id"`
-	SessionID                  string   `json:"session_id"`
-	TurnIndex                  *int     `json:"turn_index"`
-	MessageID                  *string  `json:"message_id"`
-	Model                      string   `json:"model"`
+	ID                         int64     `json:"id"`
+	SessionID                  string    `json:"session_id"`
+	TurnIndex                  *int      `json:"turn_index"`
+	MessageID                  *string   `json:"message_id"`
+	Model                      string    `json:"model"`
 	Ts                         time.Time `json:"ts"`
-	InputTokens                int      `json:"input_tokens"`
-	OutputTokens               int      `json:"output_tokens"`
-	CacheReadInputTokens       int      `json:"cache_read_input_tokens"`
-	CacheCreationInputTokens5m int      `json:"cache_creation_input_tokens_5m"`
-	CacheCreationInputTokens1h int      `json:"cache_creation_input_tokens_1h"`
-	CostUSD                    *float64 `json:"cost_usd"`
+	InputTokens                int       `json:"input_tokens"`
+	OutputTokens               int       `json:"output_tokens"`
+	CacheReadInputTokens       int       `json:"cache_read_input_tokens"`
+	CacheCreationInputTokens5m int       `json:"cache_creation_input_tokens_5m"`
+	CacheCreationInputTokens1h int       `json:"cache_creation_input_tokens_1h"`
+	CostUSD                    *float64  `json:"cost_usd"`
 }
 
 // GET /observatory/api/v1/sessions/{id}/token_deltas
