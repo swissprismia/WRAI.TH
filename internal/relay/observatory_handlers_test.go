@@ -41,7 +41,7 @@ func TestObsDeriveProjSlug(t *testing.T) {
 		{"agt-kuat-backend", "agt-kuat"},
 		{"agt-kuat-tech-lead", "agt-kuat"},
 		{"my-proj-qa", "my-proj"},
-		{"backend", ""},          // single word = no project
+		{"backend", ""},                    // single word = no project
 		{"architect-transversal", ""},
 		{"adf-worker-3", ""},
 		{"", ""},
