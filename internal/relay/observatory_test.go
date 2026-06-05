@@ -198,14 +198,14 @@ func TestObservatoryIntegration_E2E(t *testing.T) {
 			"output":     map[string]any{"result": "ok"},
 		}},
 		"token_deltas": []any{map[string]any{
-			"session_id":                       sessionID,
-			"model":                            "claude-sonnet-4-6",
-			"ts":                               now.Add(2 * time.Second).Format(time.RFC3339Nano),
-			"input_tokens":                     1000,
-			"output_tokens":                    200,
-			"cache_read_input_tokens":          0,
-			"cache_creation_input_tokens_5m":   0,
-			"cache_creation_input_tokens_1h":   0,
+			"session_id":                     sessionID,
+			"model":                          "claude-sonnet-4-6",
+			"ts":                             now.Add(2 * time.Second).Format(time.RFC3339Nano),
+			"input_tokens":                   1000,
+			"output_tokens":                  200,
+			"cache_read_input_tokens":        0,
+			"cache_creation_input_tokens_5m": 0,
+			"cache_creation_input_tokens_1h": 0,
 		}},
 	})
 	obsAssert202(t, w, "ingest events batch")
@@ -308,26 +308,26 @@ func TestObservatoryIntegration_EstimateUpsert(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Millisecond)
 
 	first := map[string]any{
-		"task_id":          taskID,
-		"estimator_source": "executor_first_turn",
-		"estimated_at":     now.Format(time.RFC3339),
-		"complexity":       "M",
-		"est_tokens_input": 10000,
+		"task_id":           taskID,
+		"estimator_source":  "executor_first_turn",
+		"estimated_at":      now.Format(time.RFC3339),
+		"complexity":        "M",
+		"est_tokens_input":  10000,
 		"est_tokens_output": 2000,
-		"est_duration_s":   120,
-		"est_files":        3,
-		"est_risk_flags":   []string{"schema_change"},
+		"est_duration_s":    120,
+		"est_files":         3,
+		"est_risk_flags":    []string{"schema_change"},
 	}
 	second := map[string]any{
-		"task_id":          taskID,
-		"estimator_source": "executor_first_turn",
-		"estimated_at":     now.Add(time.Second).Format(time.RFC3339),
-		"complexity":       "L",
-		"est_tokens_input": 20000,
+		"task_id":           taskID,
+		"estimator_source":  "executor_first_turn",
+		"estimated_at":      now.Add(time.Second).Format(time.RFC3339),
+		"complexity":        "L",
+		"est_tokens_input":  20000,
 		"est_tokens_output": 4000,
-		"est_duration_s":   240,
-		"est_files":        5,
-		"est_risk_flags":   []string{"schema_change", "external_api"},
+		"est_duration_s":    240,
+		"est_files":         5,
+		"est_risk_flags":    []string{"schema_change", "external_api"},
 	}
 
 	w := obsPostIngest(t, r, "/observatory/api/v1/ingest/estimates", first)
