@@ -24,8 +24,9 @@ type Config struct {
 	DevMode     bool // WRAITH_DEV_MODE: allow missing EasyAuth header (dev identity fallback)
 
 	// Observatory ingest service (ADF-083)
-	ObservatoryEnabled bool   // WRAITH_OBSERVATORY_ENABLED: enable observatory ingest routes (default: false)
-	ObservatoryDBURL   string // WRAITH_OBSERVATORY_DB_URL: Postgres DSN for observatory data; empty = disabled
+	ObservatoryEnabled  bool   // WRAITH_OBSERVATORY_ENABLED: enable observatory ingest routes (default: false)
+	ObservatoryDBURL    string // WRAITH_OBSERVATORY_DB_URL: Postgres DSN for observatory data; empty = disabled
+	ObservatoryEntraAuth bool  // WRAITH_OBSERVATORY_ENTRA_AUTH: use Azure Entra (UAMI) token auth for observatory Postgres
 }
 
 // Load reads configuration from environment variables with safe defaults.
@@ -76,6 +77,7 @@ func Load() Config {
 	cfg.DevMode = os.Getenv("WRAITH_DEV_MODE") == "1"
 	cfg.ObservatoryEnabled = os.Getenv("WRAITH_OBSERVATORY_ENABLED") == "1"
 	cfg.ObservatoryDBURL = os.Getenv("WRAITH_OBSERVATORY_DB_URL")
+	cfg.ObservatoryEntraAuth = os.Getenv("WRAITH_OBSERVATORY_ENTRA_AUTH") == "1"
 
 	return cfg
 }

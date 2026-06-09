@@ -19,6 +19,7 @@ import (
 	"agent-relay/internal/web"
 	"agent-relay/internal/workflow"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -204,10 +205,20 @@ func New(database *db.DB, ingester *ingest.Ingester, vaultWatcher *vault.Watcher
 	chatStaticFS, _ := fs.Sub(web.StaticFiles, "static/chat")
 
 	// Observatory Postgres pool + schema migrations — non-fatal: relay keeps running if unavailable.
+	var poolOpts []func(*pgxpool.Config)
+	if cfg.ObservatoryEntraAuth {
+		cred, credErr := azidentity.NewDefaultAzureCredential(nil)
+		if credErr != nil {
+			log.Printf("observatory: entra credential init failed (non-fatal): %v", credErr)
+		} else {
+			poolOpts = append(poolOpts, db.WithEntraBeforeConnect(cred))
+		}
+	}
+
 	var obsDB *pgxpool.Pool
 	if cfg.ObservatoryDBURL != "" {
 		var err error
-		obsDB, err = db.NewObservatoryDB(context.Background(), cfg.ObservatoryDBURL)
+		obsDB, err = db.NewObservatoryDB(context.Background(), cfg.ObservatoryDBURL, poolOpts...)
 		if err != nil {
 			log.Printf("observatory: pool init failed (non-fatal): %v", err)
 		} else if err = db.RunObservatoryMigrations(context.Background(), obsDB); err != nil {
