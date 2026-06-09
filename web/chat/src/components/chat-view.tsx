@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -103,21 +103,31 @@ export default function ChatView({ slug, initialEntries, pollIntervalMs, onMarke
     });
   }, []);
 
-  // When a *newer* message lands: auto-scroll if the reader is already at the
-  // bottom (or it's their own message), otherwise surface the jump button. Either
-  // way, mark the conversation seen. Prepending older history (Load older) does
-  // not change the newest id, so it never triggers this.
+  // Pin the viewport to the newest message whenever the reader is at the bottom.
+  // Runs before paint (useLayoutEffect) so the list never flashes at the top
+  // before jumping down, and it re-fires on every entries change — which keeps us
+  // anchored through the mount-time race where the initial poll scrolls to the
+  // bottom and then 50 messages of history merge in prepended above. Once the
+  // reader scrolls up, nearBottomRef is false and we leave their position alone.
+  useLayoutEffect(() => {
+    if (entries.length === 0 || !nearBottomRef.current) return;
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [entries]);
+
+  // When a *newer* message lands while the reader is scrolled up, surface the
+  // jump button (the pin above won't move them); either way, mark the
+  // conversation seen. Prepending older history (Load older) does not change the
+  // newest id, so it never triggers this.
   useEffect(() => {
     const newest = entries.at(-1);
     if (!newest || newest.id === newestIdRef.current) return;
     newestIdRef.current = newest.id;
-    if (nearBottomRef.current || newest.kind === "human") {
-      scrollToBottom();
-    } else {
+    if (!nearBottomRef.current && newest.kind !== "human") {
       setShowJump(true);
     }
     markSeen();
-  }, [entries, scrollToBottom, markSeen]);
+  }, [entries, markSeen]);
 
   // History arrives asynchronously via the initialEntries prop after mount;
   // merge it (deduped by id) and seed the "has more" flag.
@@ -191,6 +201,8 @@ export default function ChatView({ slug, initialEntries, pollIntervalMs, onMarke
   const handleSend = useCallback(
     async (content: string) => {
       const entry = await sendMessage(slug, content);
+      // Always jump to our own message, even if we'd scrolled up to read history.
+      nearBottomRef.current = true;
       mergeEntries([entry]);
     },
     [slug, mergeEntries],
