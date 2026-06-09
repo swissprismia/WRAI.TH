@@ -61,7 +61,7 @@ func (r *Relay) ServeObservatoryRead(w http.ResponseWriter, req *http.Request) {
 		obsJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	if r.ObservatoryDB == nil {
+	if r.PGPool == nil {
 		obsJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "observatory unavailable"})
 		return
 	}
@@ -142,7 +142,7 @@ func (r *Relay) serveObsSessionEvents(w http.ResponseWriter, req *http.Request) 
 		err  error
 	)
 	if afterID == nil {
-		rows, err = r.ObservatoryDB.Query(ctx, `
+		rows, err = r.PGPool.Query(ctx, `
 			SELECT event_id, session_id, task_run_id, trace_id, ts, kind, tool, path,
 			       input, output, turn_index
 			  FROM events
@@ -151,7 +151,7 @@ func (r *Relay) serveObsSessionEvents(w http.ResponseWriter, req *http.Request) 
 			 LIMIT $2`,
 			sessionID, limit)
 	} else {
-		rows, err = r.ObservatoryDB.Query(ctx, `
+		rows, err = r.PGPool.Query(ctx, `
 			SELECT event_id, session_id, task_run_id, trace_id, ts, kind, tool, path,
 			       input, output, turn_index
 			  FROM events
@@ -220,7 +220,7 @@ func (r *Relay) serveObsSessionTokenDeltas(w http.ResponseWriter, req *http.Requ
 	ctx, cancel := context.WithTimeout(req.Context(), 10*time.Second)
 	defer cancel()
 
-	rows, err := r.ObservatoryDB.Query(ctx, `
+	rows, err := r.PGPool.Query(ctx, `
 		SELECT id, session_id, turn_index, message_id, model, ts,
 		       input_tokens, output_tokens, cache_read_input_tokens,
 		       cache_creation_input_tokens_5m, cache_creation_input_tokens_1h,
@@ -287,7 +287,7 @@ func (r *Relay) serveObsSession(w http.ResponseWriter, req *http.Request) {
 	defer cancel()
 
 	var s obsSession
-	err := r.ObservatoryDB.QueryRow(ctx, `
+	err := r.PGPool.QueryRow(ctx, `
 		SELECT session_id, worker_run_id, trace_id, spawn_index, model,
 		       started_at, ended_at, duration_ms, turns, exit_code
 		  FROM sessions
@@ -339,7 +339,7 @@ func (r *Relay) serveObsTaskEstimate(w http.ResponseWriter, req *http.Request) {
 	defer cancel()
 
 	var e obsTaskEstimate
-	err := r.ObservatoryDB.QueryRow(ctx, `
+	err := r.PGPool.QueryRow(ctx, `
 		SELECT task_id, estimator_source, estimated_at, estimator_agent_id,
 		       estimator_model, complexity, est_tokens_input, est_tokens_output,
 		       est_duration_s, est_files, est_risk_flags, rationale
@@ -390,7 +390,7 @@ func (r *Relay) serveObsTaskRun(w http.ResponseWriter, req *http.Request) {
 	defer cancel()
 
 	var tr obsTaskRun
-	err := r.ObservatoryDB.QueryRow(ctx, `
+	err := r.PGPool.QueryRow(ctx, `
 		SELECT task_run_id, task_id, session_id, claimed_at, started_at,
 		       completed_at, terminal_state, outcome_summary, forecast_accuracy
 		  FROM task_runs

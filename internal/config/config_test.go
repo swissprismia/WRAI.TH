@@ -6,30 +6,30 @@ import (
 
 func TestLoad_ObservatoryDefaults(t *testing.T) {
 	t.Setenv("WRAITH_OBSERVATORY_ENABLED", "")
-	t.Setenv("WRAITH_OBSERVATORY_DB_URL", "")
+	t.Setenv("WRAITH_PG_DSN", "")
 
 	cfg := Load()
 
 	if cfg.ObservatoryEnabled {
 		t.Error("ObservatoryEnabled should default to false")
 	}
-	if cfg.ObservatoryDBURL != "" {
-		t.Errorf("ObservatoryDBURL should default to empty, got %q", cfg.ObservatoryDBURL)
+	if cfg.PGPool.DSN != "" {
+		t.Errorf("PGPool.DSN should default to empty, got %q", cfg.PGPool.DSN)
 	}
 }
 
 func TestLoad_ObservatoryEnabled(t *testing.T) {
 	t.Setenv("WRAITH_OBSERVATORY_ENABLED", "1")
-	t.Setenv("WRAITH_OBSERVATORY_DB_URL", "postgres://user:pass@localhost:5432/observatory")
+	t.Setenv("WRAITH_PG_DSN", "postgres://user:pass@localhost:5432/postgres?sslmode=require")
 
 	cfg := Load()
 
 	if !cfg.ObservatoryEnabled {
 		t.Error("ObservatoryEnabled should be true when WRAITH_OBSERVATORY_ENABLED=1")
 	}
-	const wantURL = "postgres://user:pass@localhost:5432/observatory"
-	if cfg.ObservatoryDBURL != wantURL {
-		t.Errorf("ObservatoryDBURL: got %q, want %q", cfg.ObservatoryDBURL, wantURL)
+	const wantDSN = "postgres://user:pass@localhost:5432/postgres?sslmode=require"
+	if cfg.PGPool.DSN != wantDSN {
+		t.Errorf("PGPool.DSN: got %q, want %q", cfg.PGPool.DSN, wantDSN)
 	}
 }
 

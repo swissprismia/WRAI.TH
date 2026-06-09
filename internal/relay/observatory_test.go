@@ -41,7 +41,7 @@ func obsIntegRelay(t *testing.T) (*Relay, *pgxpool.Pool) {
 	}
 
 	ctx := context.Background()
-	pool, err := db.NewObservatoryDB(ctx, dsn)
+	pool, err := db.NewPGPool(ctx, dsn, nil)
 	if err != nil || pool == nil {
 		t.Fatalf("connect observatory db: %v (pool=%v)", err, pool)
 	}
@@ -64,9 +64,9 @@ func obsIntegRelay(t *testing.T) (*Relay, *pgxpool.Pool) {
 	h := NewHandlers(relayDB, reg, nil, nil, evBus)
 
 	r := &Relay{
-		DB:            relayDB,
-		ObservatoryDB: pool,
-		Handlers:      h,
+		DB:      relayDB,
+		PGPool:  pool,
+		Handlers: h,
 		Config: config.Config{
 			ObservatoryEnabled: true,
 			DevMode:            false,

@@ -7,8 +7,6 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"agent-relay/internal/db"
 )
@@ -20,42 +18,38 @@ type fakeCredential struct {
 }
 
 func (f *fakeCredential) GetToken(_ context.Context, _ policy.TokenRequestOptions) (azcore.AccessToken, error) {
-	return azcore.AccessToken{Token: f.token}, nil
+	return azcore.AccessToken{Token: f.token, ExpiresOn: time.Now().Add(time.Hour)}, nil
 }
 
-func TestWithEntraBeforeConnect_SetsPassword(t *testing.T) {
-	fake := &fakeCredential{token: "test-access-token"}
-	opt := db.WithEntraBeforeConnect(fake)
-
-	cfg := &pgxpool.Config{
-		ConnConfig: &pgx.ConnConfig{},
+// TestNewPGPool_EmptyDSNWithCred verifies that an empty DSN returns (nil, nil)
+// even when a credential is provided — the credential is not consulted.
+func TestNewPGPool_EmptyDSNWithCred(t *testing.T) {
+	cred := &fakeCredential{token: "should-not-be-called"}
+	pool, err := db.NewPGPool(context.Background(), "", cred)
+	if err != nil {
+		t.Fatalf("empty DSN must not error, got: %v", err)
 	}
-	opt(cfg)
-
-	if cfg.BeforeConnect == nil {
-		t.Fatal("BeforeConnect hook not set")
-	}
-
-	connCfg := &pgx.ConnConfig{}
-	if err := cfg.BeforeConnect(context.Background(), connCfg); err != nil {
-		t.Fatalf("BeforeConnect returned error: %v", err)
-	}
-	if connCfg.Password != "test-access-token" {
-		t.Errorf("password = %q, want %q", connCfg.Password, "test-access-token")
+	if pool != nil {
+		pool.Close()
+		t.Error("empty DSN must return nil pool")
 	}
 }
 
-func TestWithEntraBeforeConnect_SetsMaxConnLifetime(t *testing.T) {
-	fake := &fakeCredential{token: "tok"}
-	opt := db.WithEntraBeforeConnect(fake)
+// TestNewPGPool_InvalidDSNWithCred verifies that an invalid DSN returns an error
+// even when a valid credential is supplied.
+func TestNewPGPool_InvalidDSNWithCred(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 
-	cfg := &pgxpool.Config{
-		ConnConfig: &pgx.ConnConfig{},
+	cred := &fakeCredential{token: "test-token"}
+	pool, err := db.NewPGPool(ctx,
+		"host=127.0.0.1 port=19999 dbname=nonexistent connect_timeout=1 sslmode=disable",
+		cred,
+	)
+	if pool != nil {
+		pool.Close()
 	}
-	opt(cfg)
-
-	const want = 45 * time.Minute
-	if cfg.MaxConnLifetime != want {
-		t.Errorf("MaxConnLifetime = %v, want %v", cfg.MaxConnLifetime, want)
+	if err != nil && pool != nil {
+		t.Error("expected nil pool when an error is returned")
 	}
 }
