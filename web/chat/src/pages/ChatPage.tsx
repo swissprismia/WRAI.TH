@@ -20,17 +20,33 @@ export default function ChatPage() {
 }
 
 function ChatPageInner({ slug }: { slug: string }) {
-  const [initialEntries, setInitialEntries] = useState<ChatEntry[]>([]);
+  const [loaded, setLoaded] = useState<{ slug: string; entries: ChatEntry[] }>({
+    slug,
+    entries: [],
+  });
   const [error, setError] = useState<string | null>(null);
   const { refreshProjects } = useOutletContext<ChatContext>();
 
   useEffect(() => {
-    setInitialEntries([]);
+    let cancelled = false;
     setError(null);
     getHistory(slug)
-      .then(setInitialEntries)
-      .catch((err: unknown) => setError((err as Error).message));
+      .then((entries) => {
+        if (!cancelled) setLoaded({ slug, entries });
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError((err as Error).message);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [slug]);
+
+  // The slug switches one render before the effect refetches, so `loaded` still
+  // holds the previous conversation's entries here. Feed the view an empty list
+  // until this slug's history lands — otherwise the remounted ChatView seeds its
+  // state from stale entries and shows the old conversation's messages.
+  const initialEntries = loaded.slug === slug ? loaded.entries : [];
 
   return (
     <div className="chat-page">
