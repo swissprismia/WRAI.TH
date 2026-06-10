@@ -73,6 +73,7 @@ func TestEasyAuthParserHappyPath(t *testing.T) {
 	p := parseClientPrincipal(header)
 	if p == nil {
 		t.Fatal("expected non-nil principal")
+		return
 	}
 	if p.Email != "alice@example.com" {
 		t.Errorf("expected email=alice@example.com, got %q", p.Email)
@@ -108,6 +109,7 @@ func TestEasyAuthParserURLSafeBase64(t *testing.T) {
 	p := parseClientPrincipal(header)
 	if p == nil {
 		t.Fatal("expected non-nil principal for URL-safe base64 header")
+		return
 	}
 	if p.Email != "bob@example.com" {
 		t.Errorf("expected email=bob@example.com, got %q", p.Email)
@@ -130,6 +132,7 @@ func TestEasyAuthParserNameClaim(t *testing.T) {
 	p := parseClientPrincipal(header)
 	if p == nil {
 		t.Fatal("expected non-nil principal")
+		return
 	}
 	if p.Email != "carol@example.com" {
 		t.Errorf("expected email=carol@example.com, got %q", p.Email)

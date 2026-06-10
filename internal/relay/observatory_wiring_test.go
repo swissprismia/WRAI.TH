@@ -32,7 +32,7 @@ func testObservatoryRelay(t *testing.T, enabled, devMode bool) *Relay {
 		DB:       database,
 		PGPool:   nil, // nil by default; tests that need a pool set it themselves
 		Handlers: handlers,
-		Config:   config.Config{
+		Config: config.Config{
 			ObservatoryEnabled: enabled,
 			DevMode:            devMode,
 		},

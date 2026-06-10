@@ -67,7 +67,7 @@ func obsIntegRelay(t *testing.T) (*Relay, *pgxpool.Pool) {
 		DB:       relayDB,
 		PGPool:   pool,
 		Handlers: h,
-		Config:   config.Config{
+		Config: config.Config{
 			ObservatoryEnabled: true,
 			DevMode:            false,
 		},
