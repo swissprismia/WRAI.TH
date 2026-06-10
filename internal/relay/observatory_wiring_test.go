@@ -29,9 +29,9 @@ func testObservatoryRelay(t *testing.T, enabled, devMode bool) *Relay {
 	handlers := NewHandlers(database, registry, nil, nil, events)
 
 	return &Relay{
-		DB:            database,
-		ObservatoryDB: nil, // nil by default; tests that need a pool set it themselves
-		Handlers:      handlers,
+		DB:       database,
+		PGPool:   nil, // nil by default; tests that need a pool set it themselves
+		Handlers: handlers,
 		Config: config.Config{
 			ObservatoryEnabled: enabled,
 			DevMode:            devMode,
@@ -43,7 +43,7 @@ func testObservatoryRelay(t *testing.T, enabled, devMode bool) *Relay {
 
 func TestObservatoryIngestNilPool503(t *testing.T) {
 	r := testObservatoryRelay(t, true, false)
-	// r.ObservatoryDB is nil
+	// r.PGPool is nil
 
 	for _, path := range []string{
 		"/observatory/api/v1/ingest/worker_runs",

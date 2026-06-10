@@ -16,6 +16,14 @@ import (
 // pg_cron refresh wiring is intentionally omitted; it is tracked in OQ-4 and
 // will land in a follow-up migration.
 func RunObservatoryMigrations(ctx context.Context, pool *pgxpool.Pool) error {
+	// Bootstrap the observatory schema and set the search path for this session.
+	if _, err := pool.Exec(ctx, `CREATE SCHEMA IF NOT EXISTS observatory`); err != nil {
+		return fmt.Errorf("observatory migrations: create schema: %w", err)
+	}
+	if _, err := pool.Exec(ctx, `SET search_path = observatory`); err != nil {
+		return fmt.Errorf("observatory migrations: set search_path: %w", err)
+	}
+
 	if _, err := pool.Exec(ctx, `
 		CREATE TABLE IF NOT EXISTS observatory_schema_version (
 			version    INTEGER     PRIMARY KEY,

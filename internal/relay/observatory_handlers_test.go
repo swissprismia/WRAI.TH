@@ -81,6 +81,7 @@ func TestObsJSONB(t *testing.T) {
 	got := obsJSONB(map[string]any{"k": "v"})
 	if got == nil {
 		t.Fatal("obsJSONB(map) should return non-nil")
+		return
 	}
 	if *got != `{"k":"v"}` {
 		t.Errorf("obsJSONB(map) = %q; want {\"k\":\"v\"}", *got)

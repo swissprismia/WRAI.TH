@@ -241,9 +241,9 @@ func obsWrite(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// obsCheckPool returns false and writes 503 if ObservatoryDB is not available.
+// obsCheckPool returns false and writes 503 if the PG pool is not available.
 func obsCheckPool(r *Relay, w http.ResponseWriter) bool {
-	if r.ObservatoryDB == nil {
+	if r.PGPool == nil {
 		obsWrite(w, http.StatusServiceUnavailable, map[string]string{"error": "observatory unavailable"})
 		return false
 	}
@@ -272,17 +272,17 @@ func (r *Relay) ObsIngestWorkerRuns(w http.ResponseWriter, req *http.Request) {
 	if projSlug == nil {
 		projSlug = obsDeriveProjSlug(p.ProfileSlug)
 	}
-	if err := obsUpsertProject(ctx, r.ObservatoryDB, projSlug); err != nil {
+	if err := obsUpsertProject(ctx, r.PGPool, projSlug); err != nil {
 		log.Printf("obs/worker_runs: upsert project: %v", err)
 		obsWrite(w, http.StatusInternalServerError, map[string]string{"error": "db error"})
 		return
 	}
-	if err := obsUpsertAgent(ctx, r.ObservatoryDB, p.AgentID, p.ProfileSlug, projSlug, obsDeriveRole(p.ProfileSlug)); err != nil {
+	if err := obsUpsertAgent(ctx, r.PGPool, p.AgentID, p.ProfileSlug, projSlug, obsDeriveRole(p.ProfileSlug)); err != nil {
 		log.Printf("obs/worker_runs: upsert agent: %v", err)
 		obsWrite(w, http.StatusInternalServerError, map[string]string{"error": "db error"})
 		return
 	}
-	if _, err := r.ObservatoryDB.Exec(ctx, `
+	if _, err := r.PGPool.Exec(ctx, `
 		INSERT INTO worker_runs (worker_run_id, agent_id, trace_id, started_at, mode, container_revision)
 		VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6)
 		ON CONFLICT (worker_run_id) DO UPDATE
@@ -320,20 +320,20 @@ func (r *Relay) ObsIngestSessions(w http.ResponseWriter, req *http.Request) {
 		if projSlug == nil {
 			projSlug = obsDeriveProjSlug(p.ProfileSlug)
 		}
-		if err := obsUpsertProject(ctx, r.ObservatoryDB, projSlug); err != nil {
+		if err := obsUpsertProject(ctx, r.PGPool, projSlug); err != nil {
 			log.Printf("obs/sessions: upsert project: %v", err)
 			obsWrite(w, http.StatusInternalServerError, map[string]string{"error": "db error"})
 			return
 		}
 		// Use profile_slug as the persona's agent_id (separate row from the pool worker).
-		if err := obsUpsertAgent(ctx, r.ObservatoryDB, *p.ProfileSlug, p.ProfileSlug, projSlug, obsDeriveRole(p.ProfileSlug)); err != nil {
+		if err := obsUpsertAgent(ctx, r.PGPool, *p.ProfileSlug, p.ProfileSlug, projSlug, obsDeriveRole(p.ProfileSlug)); err != nil {
 			log.Printf("obs/sessions: upsert agent: %v", err)
 			obsWrite(w, http.StatusInternalServerError, map[string]string{"error": "db error"})
 			return
 		}
 		sessionAgentID = p.ProfileSlug
 	}
-	if _, err := r.ObservatoryDB.Exec(ctx, `
+	if _, err := r.PGPool.Exec(ctx, `
 		INSERT INTO sessions (session_id, worker_run_id, agent_id, trace_id, spawn_index, model, started_at)
 		VALUES ($1::uuid, $2::uuid, $3, $4::uuid, $5, $6, $7)
 		ON CONFLICT (session_id) DO UPDATE
@@ -360,7 +360,7 @@ func (r *Relay) ObsIngestSessionsFinalize(w http.ResponseWriter, req *http.Reque
 		obsWrite(w, http.StatusBadRequest, map[string]string{"error": "invalid payload"})
 		return
 	}
-	if _, err := r.ObservatoryDB.Exec(req.Context(), `
+	if _, err := r.PGPool.Exec(req.Context(), `
 		UPDATE sessions
 		   SET ended_at = $2, duration_ms = $3, turns = $4, exit_code = $5
 		 WHERE session_id = $1::uuid
@@ -392,7 +392,7 @@ func (r *Relay) ObsIngestEvents(w http.ResponseWriter, req *http.Request) {
 	acceptedEvents, acceptedDeltas, flagsFired := 0, 0, 0
 
 	for _, ev := range batch.Events {
-		n, err := obsInsertEvent(ctx, r.ObservatoryDB, ev)
+		n, err := obsInsertEvent(ctx, r.PGPool, ev)
 		if err != nil {
 			log.Printf("obs/events: persist failed session=%s: %v", ev.SessionID, err)
 			continue
@@ -401,7 +401,7 @@ func (r *Relay) ObsIngestEvents(w http.ResponseWriter, req *http.Request) {
 		flagsFired += n
 	}
 	for _, d := range batch.TokenDeltas {
-		if err := obsInsertTokenDelta(ctx, r.ObservatoryDB, d); err != nil {
+		if err := obsInsertTokenDelta(ctx, r.PGPool, d); err != nil {
 			log.Printf("obs/events: token_delta failed session=%s: %v", d.SessionID, err)
 			continue
 		}
@@ -527,7 +527,7 @@ func (r *Relay) ObsIngestEstimates(w http.ResponseWriter, req *http.Request) {
 		obsWrite(w, http.StatusBadRequest, map[string]string{"error": "invalid payload"})
 		return
 	}
-	if _, err := r.ObservatoryDB.Exec(req.Context(), `
+	if _, err := r.PGPool.Exec(req.Context(), `
 		INSERT INTO task_estimates
 		    (task_id, estimator_source, estimated_at, estimator_agent_id, estimator_model,
 		     complexity, est_tokens_input, est_tokens_output, est_duration_s, est_files,
@@ -570,7 +570,7 @@ func (r *Relay) ObsIngestTaskRuns(w http.ResponseWriter, req *http.Request) {
 		obsWrite(w, http.StatusBadRequest, map[string]string{"error": "invalid payload"})
 		return
 	}
-	_, err := r.ObservatoryDB.Exec(req.Context(), `
+	_, err := r.PGPool.Exec(req.Context(), `
 		INSERT INTO task_runs
 		    (task_run_id, task_id, session_id, claimed_at, started_at,
 		     completed_at, terminal_state, outcome_summary)

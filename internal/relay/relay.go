@@ -29,7 +29,7 @@ type Relay struct {
 	MCPServer      *server.MCPServer
 	HTTP           *server.StreamableHTTPServer
 	DB             *db.DB
-	ObservatoryDB  *pgxpool.Pool // nil when observatory Postgres is unavailable; handlers must return 503
+	PGPool         *pgxpool.Pool // nil when Postgres is unavailable; observatory handlers must return 503
 	Registry       *SessionRegistry
 	Ingester       *ingest.Ingester
 	VaultWatcher   *vault.Watcher
@@ -204,27 +204,24 @@ func New(database *db.DB, ingester *ingest.Ingester, vaultWatcher *vault.Watcher
 
 	chatStaticFS, _ := fs.Sub(web.StaticFiles, "static/chat")
 
-	// Observatory Postgres pool + schema migrations — non-fatal: relay keeps running if unavailable.
-	var poolOpts []func(*pgxpool.Config)
-	if cfg.ObservatoryEntraAuth {
+	// PG pool + observatory schema migrations — non-fatal: relay keeps running if unavailable.
+	var pgPool *pgxpool.Pool
+	if cfg.PGPool.DSN != "" {
 		cred, credErr := azidentity.NewDefaultAzureCredential(nil)
 		if credErr != nil {
-			log.Printf("observatory: entra credential init failed (non-fatal): %v", credErr)
+			log.Printf("pg pool: credential init failed (non-fatal): %v", credErr)
 		} else {
-			poolOpts = append(poolOpts, db.WithEntraBeforeConnect(cred))
-		}
-	}
-
-	var obsDB *pgxpool.Pool
-	if cfg.ObservatoryDBURL != "" {
-		var err error
-		obsDB, err = db.NewObservatoryDB(context.Background(), cfg.ObservatoryDBURL, poolOpts...)
-		if err != nil {
-			log.Printf("observatory: pool init failed (non-fatal): %v", err)
-		} else if err = db.RunObservatoryMigrations(context.Background(), obsDB); err != nil {
-			log.Printf("observatory: migration failed (non-fatal): %v", err)
-		} else {
-			log.Println("observatory: pool ready, migrations applied")
+			var err error
+			pgPool, err = db.NewPGPool(context.Background(), cfg.PGPool.DSN, cred)
+			if err != nil {
+				log.Printf("pg pool: open failed (non-fatal): %v", err)
+			} else if err = db.RunObservatoryMigrations(context.Background(), pgPool); err != nil {
+				log.Printf("pg pool: observatory migrations failed (non-fatal): %v", err)
+				pgPool.Close()
+				pgPool = nil
+			} else {
+				log.Println("pg pool: ready, observatory schema up to date")
+			}
 		}
 	}
 
@@ -232,7 +229,7 @@ func New(database *db.DB, ingester *ingest.Ingester, vaultWatcher *vault.Watcher
 		MCPServer:      mcpSrv,
 		HTTP:           httpSrv,
 		DB:             database,
-		ObservatoryDB:  obsDB,
+		PGPool:         pgPool,
 		Registry:       registry,
 		Ingester:       ingester,
 		VaultWatcher:   vaultWatcher,
@@ -313,8 +310,8 @@ func (r *Relay) buildMiddlewareChain(handler http.Handler) http.Handler {
 
 // Shutdown gracefully stops the HTTP server and releases pooled resources.
 func (r *Relay) Shutdown(ctx context.Context) error {
-	if r.ObservatoryDB != nil {
-		r.ObservatoryDB.Close()
+	if r.PGPool != nil {
+		r.PGPool.Close()
 	}
 	if r.httpServer != nil {
 		return r.httpServer.Shutdown(ctx)
