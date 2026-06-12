@@ -19,16 +19,21 @@ SKILL_FILE := relay.md
 
 .PHONY: build ui install uninstall service service-stop skill clean help
 
-## ui: Build the chat UI static assets (requires Node ≥24)
+## ui: Build the chat + observatory UI static assets (requires Node ≥24)
 ui:
 	cd web/chat && npm ci && npm run build
 	rm -rf internal/web/static/chat
 	cp -r web/chat/dist internal/web/static/chat
+	cd web/observatory && npm ci && npm run build
+	rm -rf internal/web/static/observatory
+	cp -r web/observatory/dist internal/web/static/observatory
 
 ## build: Compile the binary with version info
 build:
 	@test -d internal/web/static/chat || \
 	  (echo "ERROR: chat UI not built — run 'make ui' first"; exit 1)
+	@test -d internal/web/static/observatory || \
+	  (echo "ERROR: observatory UI not built — run 'make ui' first"; exit 1)
 	$(GOFLAGS) go build -tags "fts5" -ldflags="$(LDFLAGS)" -o $(BINARY) .
 
 ## install: Build, install binary, skill, and service

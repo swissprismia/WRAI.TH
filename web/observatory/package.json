@@ -1,0 +1,26 @@
+{
+  "name": "wraith-observatory-ui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Observatory dashboard — Vite/React SPA served by WRAI.TH at /observatory (ADF-083 phase 2; replaces the standalone adf-observatory-ui)",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.6.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.2",
+    "vite": "^6.3.5"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

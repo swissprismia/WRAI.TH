@@ -26,23 +26,24 @@ import (
 
 // Relay is the main struct that wires together the MCP server, DB, and notifications.
 type Relay struct {
-	MCPServer      *server.MCPServer
-	HTTP           *server.StreamableHTTPServer
-	DB             *db.DB
-	PGPool         *pgxpool.Pool // nil when Postgres is unavailable; observatory handlers must return 503
-	Registry       *SessionRegistry
-	Ingester       *ingest.Ingester
-	VaultWatcher   *vault.Watcher
-	Events         *EventBus
-	SpawnMgr       *spawn.Manager
-	Scheduler      *scheduler.Scheduler
-	PTYMgr         *spawn.PTYManager
-	Handlers       *Handlers
-	WorkflowEngine *workflow.Engine
-	Config         config.Config
-	ChatStaticFS   fs.FS
-	httpServer     *http.Server
-	StartedAt      time.Time
+	MCPServer           *server.MCPServer
+	HTTP                *server.StreamableHTTPServer
+	DB                  *db.DB
+	PGPool              *pgxpool.Pool // nil when Postgres is unavailable; observatory handlers must return 503
+	Registry            *SessionRegistry
+	Ingester            *ingest.Ingester
+	VaultWatcher        *vault.Watcher
+	Events              *EventBus
+	SpawnMgr            *spawn.Manager
+	Scheduler           *scheduler.Scheduler
+	PTYMgr              *spawn.PTYManager
+	Handlers            *Handlers
+	WorkflowEngine      *workflow.Engine
+	Config              config.Config
+	ChatStaticFS        fs.FS
+	ObservatoryStaticFS fs.FS
+	httpServer          *http.Server
+	StartedAt           time.Time
 }
 
 // New creates a fully wired Relay with all tools registered.
@@ -203,6 +204,7 @@ func New(database *db.DB, ingester *ingest.Ingester, vaultWatcher *vault.Watcher
 	)
 
 	chatStaticFS, _ := fs.Sub(web.StaticFiles, "static/chat")
+	observatoryStaticFS, _ := fs.Sub(web.StaticFiles, "static/observatory")
 
 	// PG pool + observatory schema migrations — non-fatal: relay keeps running if unavailable.
 	var pgPool *pgxpool.Pool
@@ -221,27 +223,33 @@ func New(database *db.DB, ingester *ingest.Ingester, vaultWatcher *vault.Watcher
 				pgPool = nil
 			} else {
 				log.Println("pg pool: ready, observatory schema up to date")
+				// OQ-4: the observatory materialized views are only bootstrapped
+				// once by the migrations. Keep them live with a periodic
+				// CONCURRENTLY refresh so the dashboard's burn/budget/session
+				// aggregates do not freeze at first-boot values.
+				go refreshObservatoryViews(context.Background(), pgPool, cfg.ObservatoryMVRefresh)
 			}
 		}
 	}
 
 	return &Relay{
-		MCPServer:      mcpSrv,
-		HTTP:           httpSrv,
-		DB:             database,
-		PGPool:         pgPool,
-		Registry:       registry,
-		Ingester:       ingester,
-		VaultWatcher:   vaultWatcher,
-		Events:         events,
-		SpawnMgr:       spawnMgr,
-		PTYMgr:         ptyMgr,
-		Scheduler:      sched,
-		Handlers:       handlers,
-		WorkflowEngine: wfEngine,
-		Config:         cfg,
-		ChatStaticFS:   chatStaticFS,
-		StartedAt:      time.Now().UTC(),
+		MCPServer:           mcpSrv,
+		HTTP:                httpSrv,
+		DB:                  database,
+		PGPool:              pgPool,
+		Registry:            registry,
+		Ingester:            ingester,
+		VaultWatcher:        vaultWatcher,
+		Events:              events,
+		SpawnMgr:            spawnMgr,
+		PTYMgr:              ptyMgr,
+		Scheduler:           sched,
+		Handlers:            handlers,
+		WorkflowEngine:      wfEngine,
+		Config:              cfg,
+		ChatStaticFS:        chatStaticFS,
+		ObservatoryStaticFS: observatoryStaticFS,
+		StartedAt:           time.Now().UTC(),
 	}
 }
 
@@ -250,7 +258,8 @@ func New(database *db.DB, ingester *ingest.Ingester, vaultWatcher *vault.Watcher
 //   - /api/*                        → REST API for the web UI
 //   - /chat/**                      → Chat routes (EasyAuth, no Bearer required; only when WRAITH_CHAT_ENABLED=1)
 //   - /observatory/api/v1/ingest/*  → Observatory ingest (no auth; only when WRAITH_OBSERVATORY_ENABLED=1)
-//   - /observatory/api/v1/sessions/*, /observatory/api/v1/tasks/* → Observatory read (EasyAuth)
+//   - /observatory/api/v1/*         → Observatory read API (EasyAuth)
+//   - /observatory/**               → Observatory dashboard SPA (embedded static)
 //   - /*                            → Embedded static files (web UI)
 func (r *Relay) ListenAndServe(addr string) error {
 	// chatMux holds routes that bypass bearer auth (chat uses EasyAuth).
@@ -261,14 +270,18 @@ func (r *Relay) ListenAndServe(addr string) error {
 	}
 
 	// observatoryMux splits auth: ingest routes carry no auth (trusted via ACA
-	// internal networking); read routes are gated by the EasyAuth middleware.
+	// internal networking); the read API is gated by the EasyAuth middleware.
+	// The dashboard SPA static assets are served ungated (mirroring the chat
+	// SPA) — the data they fetch is protected by the read-API gate. ServeMux
+	// longest-prefix wins, so /ingest/ and /api/v1/ take precedence over the
+	// /observatory/ SPA catch-all.
 	var observatoryMux *http.ServeMux
 	if r.Config.ObservatoryEnabled {
 		observatoryMux = http.NewServeMux()
 		observatoryMux.HandleFunc("/observatory/api/v1/ingest/", r.ServeObservatoryIngest)
 		readHandler := r.ObservatoryEasyAuthMiddleware(http.HandlerFunc(r.ServeObservatoryRead))
-		observatoryMux.Handle("/observatory/api/v1/sessions/", readHandler)
-		observatoryMux.Handle("/observatory/api/v1/tasks/", readHandler)
+		observatoryMux.Handle("/observatory/api/v1/", readHandler)
+		observatoryMux.HandleFunc("/observatory/", r.serveObservatoryStatic)
 	}
 
 	// mainMux holds routes protected by the full middleware chain.
