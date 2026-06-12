@@ -4,6 +4,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Config holds server security settings loaded from environment variables.
@@ -25,6 +26,11 @@ type Config struct {
 
 	// Observatory ingest service (ADF-083)
 	ObservatoryEnabled bool // WRAITH_OBSERVATORY_ENABLED: enable observatory HTTP routes (default: false)
+
+	// ObservatoryMVRefresh is how often the observatory materialized views are
+	// refreshed CONCURRENTLY (OQ-4). WRAITH_OBSERVATORY_MV_REFRESH_SECONDS;
+	// default 120s. Zero disables the background refresh loop.
+	ObservatoryMVRefresh time.Duration
 
 	// PGPool holds WRAI.TH's primary Postgres connection config (ADF-083).
 	PGPool struct {
@@ -80,6 +86,13 @@ func Load() Config {
 	cfg.DevMode = os.Getenv("WRAITH_DEV_MODE") == "1"
 	cfg.ObservatoryEnabled = os.Getenv("WRAITH_OBSERVATORY_ENABLED") == "1"
 	cfg.PGPool.DSN = os.Getenv("WRAITH_PG_DSN")
+
+	cfg.ObservatoryMVRefresh = 120 * time.Second
+	if v := os.Getenv("WRAITH_OBSERVATORY_MV_REFRESH_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			cfg.ObservatoryMVRefresh = time.Duration(n) * time.Second
+		}
+	}
 
 	return cfg
 }

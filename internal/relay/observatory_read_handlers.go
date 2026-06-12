@@ -69,25 +69,66 @@ func (r *Relay) ServeObservatoryRead(w http.ResponseWriter, req *http.Request) {
 	path := req.URL.Path
 
 	switch {
-	case strings.HasPrefix(path, "/observatory/api/v1/sessions/") &&
-		strings.HasSuffix(path, "/events"):
+	// ── collection / aggregate surfaces (exact paths) ──
+	case path == "/observatory/api/v1/overview":
+		r.serveObsOverview(w, req)
+
+	case path == "/observatory/api/v1/burn":
+		r.serveObsBurn(w, req)
+
+	case path == "/observatory/api/v1/budgets":
+		r.serveObsBudgets(w, req)
+
+	case path == "/observatory/api/v1/flags/top":
+		r.serveObsTopFlags(w, req)
+
+	case path == "/observatory/api/v1/projects":
+		r.serveObsProjects(w, req)
+
+	case path == "/observatory/api/v1/agents":
+		r.serveObsAgents(w, req)
+
+	// ── projects/{slug} ──
+	case obsMatchID(path, "/observatory/api/v1/projects/"):
+		r.serveObsProject(w, req)
+
+	// ── agents/{id}/sessions and agents/{slug} ──
+	case obsMatchSub(path, "/observatory/api/v1/agents/", "/sessions"):
+		r.serveObsAgentSessions(w, req)
+
+	case obsMatchID(path, "/observatory/api/v1/agents/"):
+		r.serveObsAgent(w, req)
+
+	// ── sessions/{id}[/events|/token_deltas|/flags] ──
+	case obsMatchSub(path, "/observatory/api/v1/sessions/", "/events"):
 		r.serveObsSessionEvents(w, req)
 
-	case strings.HasPrefix(path, "/observatory/api/v1/sessions/") &&
-		strings.HasSuffix(path, "/token_deltas"):
+	case obsMatchSub(path, "/observatory/api/v1/sessions/", "/token_deltas"):
 		r.serveObsSessionTokenDeltas(w, req)
 
-	case strings.HasPrefix(path, "/observatory/api/v1/sessions/") &&
-		!strings.Contains(strings.TrimPrefix(path, "/observatory/api/v1/sessions/"), "/"):
+	case obsMatchSub(path, "/observatory/api/v1/sessions/", "/flags"):
+		r.serveObsSessionFlags(w, req)
+
+	case obsMatchID(path, "/observatory/api/v1/sessions/"):
 		r.serveObsSession(w, req)
 
-	case strings.HasPrefix(path, "/observatory/api/v1/tasks/") &&
-		strings.HasSuffix(path, "/estimate"):
+	// ── tasks/{id}/[estimates|estimate|runs|run|actuals] ──
+	// Plural forms are matched before singular so /estimates and /runs are
+	// not shadowed by the /estimate and /run suffix checks.
+	case obsMatchSub(path, "/observatory/api/v1/tasks/", "/estimates"):
+		r.serveObsTaskEstimates(w, req)
+
+	case obsMatchSub(path, "/observatory/api/v1/tasks/", "/estimate"):
 		r.serveObsTaskEstimate(w, req)
 
-	case strings.HasPrefix(path, "/observatory/api/v1/tasks/") &&
-		strings.HasSuffix(path, "/run"):
+	case obsMatchSub(path, "/observatory/api/v1/tasks/", "/runs"):
+		r.serveObsTaskRuns(w, req)
+
+	case obsMatchSub(path, "/observatory/api/v1/tasks/", "/run"):
 		r.serveObsTaskRun(w, req)
+
+	case obsMatchSub(path, "/observatory/api/v1/tasks/", "/actuals"):
+		r.serveObsTaskActuals(w, req)
 
 	default:
 		http.NotFound(w, req)
@@ -262,20 +303,30 @@ func (r *Relay) serveObsSessionTokenDeltas(w http.ResponseWriter, req *http.Requ
 // ─── session row ─────────────────────────────────────────────────────────────
 
 type obsSession struct {
-	SessionID   string     `json:"session_id"`
-	WorkerRunID string     `json:"worker_run_id"`
-	TraceID     *string    `json:"trace_id"`
-	SpawnIndex  int        `json:"spawn_index"`
-	Model       string     `json:"model"`
-	StartedAt   time.Time  `json:"started_at"`
-	EndedAt     *time.Time `json:"ended_at"`
-	DurationMs  *int64     `json:"duration_ms"`
-	Turns       *int       `json:"turns"`
-	ExitCode    *int       `json:"exit_code"`
+	SessionID    string     `json:"session_id"`
+	WorkerRunID  string     `json:"worker_run_id"`
+	TraceID      *string    `json:"trace_id"`
+	SpawnIndex   int        `json:"spawn_index"`
+	Model        string     `json:"model"`
+	StartedAt    time.Time  `json:"started_at"`
+	EndedAt      *time.Time `json:"ended_at"`
+	DurationMs   *int64     `json:"duration_ms"`
+	Turns        *int       `json:"turns"`
+	ExitCode     *int       `json:"exit_code"`
+	TotalCostUSD float64    `json:"total_cost_usd"`
+	FlagCount    int64      `json:"flag_count"`
+	AgentID      *string    `json:"agent_id"`
+	ProfileSlug  *string    `json:"profile_slug"`
+	ProjectSlug  *string    `json:"project_slug"`
+	Mode         *string    `json:"mode"`
 }
 
 // GET /observatory/api/v1/sessions/{id}
-// Returns a single session row; 404 if not found.
+// Returns a single session row enriched with the owning agent/project, the
+// worker-run mode, and the session's cost/flag rollup (from
+// mv_session_aggregates); 404 if not found. Mirrors getSession in the retired
+// standalone UI's queries.ts so the dashboard's session-detail breadcrumb and
+// header cards render.
 func (r *Relay) serveObsSession(w http.ResponseWriter, req *http.Request) {
 	sessionID := strings.TrimPrefix(req.URL.Path, "/observatory/api/v1/sessions/")
 	if sessionID == "" {
@@ -288,14 +339,22 @@ func (r *Relay) serveObsSession(w http.ResponseWriter, req *http.Request) {
 
 	var s obsSession
 	err := r.PGPool.QueryRow(ctx, `
-		SELECT session_id, worker_run_id, trace_id, spawn_index, model,
-		       started_at, ended_at, duration_ms, turns, exit_code
-		  FROM sessions
-		 WHERE session_id = $1`,
+		SELECT s.session_id, s.worker_run_id, s.trace_id, s.spawn_index, s.model,
+		       s.started_at, s.ended_at, s.duration_ms, s.turns, s.exit_code,
+		       COALESCE(agg.total_cost_usd, 0) AS total_cost_usd,
+		       COALESCE(agg.flag_count, 0)     AS flag_count,
+		       COALESCE(s.agent_id, wr.agent_id) AS agent_id,
+		       a.profile_slug, a.project_slug, wr.mode
+		  FROM sessions s
+		  JOIN worker_runs wr ON wr.worker_run_id = s.worker_run_id
+		  LEFT JOIN agents a  ON a.agent_id = COALESCE(s.agent_id, wr.agent_id)
+		  LEFT JOIN mv_session_aggregates agg ON agg.session_id = s.session_id
+		 WHERE s.session_id = $1`,
 		sessionID,
 	).Scan(
 		&s.SessionID, &s.WorkerRunID, &s.TraceID, &s.SpawnIndex, &s.Model,
 		&s.StartedAt, &s.EndedAt, &s.DurationMs, &s.Turns, &s.ExitCode,
+		&s.TotalCostUSD, &s.FlagCount, &s.AgentID, &s.ProfileSlug, &s.ProjectSlug, &s.Mode,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
