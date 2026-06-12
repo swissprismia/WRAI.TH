@@ -26,6 +26,12 @@ import (
 
 // obsWindow parses the ?window= query parameter, constraining it to the
 // dashboard's supported buckets (1, 7, 30 days). Anything else falls back to 7.
+//
+// The result is bound into SQL as `$1::int * interval '1 day'` (NOT the
+// `$1 || ' days'` form the retired Node UI used): with `$1 || ' days'` the
+// server infers $1 as text, and pgx then refuses to encode a Go int into a
+// text parameter ("cannot find encode plan"). The explicit ::int keeps $1 as
+// int4 so pgx encodes it natively. Do not revert to string concatenation.
 func obsWindow(req *http.Request) int {
 	switch req.URL.Query().Get("window") {
 	case "1":
@@ -125,7 +131,7 @@ func (r *Relay) serveObsBurn(w http.ResponseWriter, req *http.Request) {
 		       cache_creation_5m, cache_creation_1h,
 		       COALESCE(cost_usd, 0)
 		  FROM mv_daily_burn_by_project
-		 WHERE day_bucket >= (now() - ($1 || ' days')::interval)::date
+		 WHERE day_bucket >= (now() - ($1::int * interval '1 day'))::date
 		 ORDER BY day_bucket DESC, cost_usd DESC NULLS LAST`,
 		window,
 	)
@@ -471,7 +477,7 @@ func (r *Relay) serveObsTopFlags(w http.ResponseWriter, req *http.Request) {
 	rows, err := r.PGPool.Query(ctx, `
 		SELECT rule_id, severity, COUNT(*) AS count
 		  FROM flags
-		 WHERE captured_at >= now() - ($1 || ' days')::interval
+		 WHERE captured_at >= now() - ($1::int * interval '1 day')
 		 GROUP BY rule_id, severity
 		 ORDER BY COUNT(*) DESC
 		 LIMIT 20`,
