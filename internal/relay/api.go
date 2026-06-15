@@ -91,6 +91,8 @@ func (r *Relay) ServeAPI(w http.ResponseWriter, req *http.Request) {
 	case path == "/file-locks" && req.Method == http.MethodGet:
 		r.apiGetFileLocks(w, req)
 	// Task endpoints
+	case path == "/workload/active" && req.Method == http.MethodGet:
+		r.apiGetActiveWorkload(w, req)
 	case path == "/tasks/human" && req.Method == http.MethodGet:
 		r.apiGetHumanTasks(w, req)
 	case path == "/tasks/all" && req.Method == http.MethodGet:
@@ -690,6 +692,37 @@ func (r *Relay) apiGetInboxCount(w http.ResponseWriter, req *http.Request) {
 		"count":   n,
 		"project": project,
 		"agent":   agent,
+	})
+}
+
+// apiGetActiveWorkload returns the number of unarchived pending/in-progress
+// tasks across all projects, optionally scoped to a set of role keys via
+// ?roles=a,b,c. It is the scale signal a KEDA metrics-api scaler polls to drive
+// the dynamic worker pool between zero (idle) and its cap (ADF-025 scale-to-
+// zero). Role-scoping lets the execution-worker pool exclude executive-pool
+// work so a pending cto/director task doesn't wake the workers.
+//
+// GET /api/workload/active?roles=backend,frontend,...
+// Response: {"count": <int>, "roles": [<string>...]}
+func (r *Relay) apiGetActiveWorkload(w http.ResponseWriter, req *http.Request) {
+	roles := []string{}
+	if raw := strings.TrimSpace(req.URL.Query().Get("roles")); raw != "" {
+		for _, part := range strings.Split(raw, ",") {
+			if p := strings.TrimSpace(part); p != "" {
+				roles = append(roles, p)
+			}
+		}
+	}
+
+	n, err := r.DB.CountActiveTasks(roles)
+	if err != nil {
+		apiError(w, http.StatusInternalServerError, "failed to count active tasks", err)
+		return
+	}
+
+	writeJSON(w, map[string]any{
+		"count": n,
+		"roles": roles,
 	})
 }
 

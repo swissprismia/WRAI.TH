@@ -5,6 +5,7 @@ import (
 	"agent-relay/internal/normalize"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -418,6 +419,46 @@ func (d *DB) ListAllTasks(limit int) ([]models.Task, error) {
 		tasks = append(tasks, t)
 	}
 	return tasks, rows.Err()
+}
+
+// CountActiveTasks returns the number of unarchived tasks in the pending or
+// in-progress state across all projects, optionally restricted to those whose
+// profile_slug resolves to one of the given role keys.
+//
+// Role matching mirrors the runner's _task_role_key (ADF-025 dynamic pool): a
+// slug matches a role key when it equals the key, carries it as a "-<key>"
+// suffix, or a "<key>-" prefix (e.g. role "backend" matches "app-demos-backend"
+// and "backend-transversal"). When roles is empty the count spans every active
+// task. Membership is symmetric with the runner's longest-first resolution: a
+// slug is counted here iff some role in the set matches it, which is exactly
+// when the runner's resolved role for that slug lands in the same set.
+//
+// This is the scale signal for the dynamic worker pool: a KEDA metrics-api
+// scaler polls it to scale execution workers between zero (idle) and the pool
+// cap. Role-scoping keeps executive-pool work (cto/director) from waking the
+// always-warm-separate execution workers.
+func (d *DB) CountActiveTasks(roles []string) (int, error) {
+	query := `SELECT COUNT(*) FROM tasks
+	          WHERE archived_at IS NULL
+	            AND status IN ('pending', 'in-progress')`
+	var args []any
+
+	if len(roles) > 0 {
+		clauses := make([]string, 0, len(roles))
+		for _, role := range roles {
+			// role keys are simple identifiers ([a-z-]); they contain no LIKE
+			// wildcards, so the patterns below match literally.
+			clauses = append(clauses, "(profile_slug = ? OR profile_slug LIKE ? OR profile_slug LIKE ?)")
+			args = append(args, role, "%-"+role, role+"-%")
+		}
+		query += " AND (" + strings.Join(clauses, " OR ") + ")"
+	}
+
+	var n int
+	if err := d.ro().QueryRow(query, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count active tasks: %w", err)
+	}
+	return n, nil
 }
 
 func (d *DB) UpdateTaskFields(taskID, project string, title, description, priority, boardID, goalID *string) (*models.Task, error) {
