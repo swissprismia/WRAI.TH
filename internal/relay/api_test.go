@@ -70,6 +70,45 @@ func decodeJSONArray(t *testing.T, w *httptest.ResponseRecorder) []any {
 	return data
 }
 
+// --- Workload API Tests ---
+
+func TestAPIGetActiveWorkload(t *testing.T) {
+	r := testRelay(t)
+
+	// pending worker task, pending executive task, and a done task (excluded).
+	if _, err := r.DB.DispatchTask("app-demos", "app-demos-backend", "user", "build", "", "", nil, nil, nil); err != nil {
+		t.Fatalf("dispatch backend: %v", err)
+	}
+	if _, err := r.DB.DispatchTask("app-demos", "app-demos-cto", "user", "plan", "", "", nil, nil, nil); err != nil {
+		t.Fatalf("dispatch cto: %v", err)
+	}
+	doneTask, err := r.DB.DispatchTask("app-demos", "app-demos-qa", "user", "verify", "", "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("dispatch qa: %v", err)
+	}
+	if _, err := r.DB.CompleteTask(doneTask.ID, "user", "app-demos", nil); err != nil {
+		t.Fatalf("complete qa: %v", err)
+	}
+
+	// No roles: all active tasks (backend + cto), done excluded.
+	w := doAPI(r, "GET", "/workload/active", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if got := decodeJSON(t, w)["count"]; got != float64(2) {
+		t.Errorf("unscoped count = %v, want 2", got)
+	}
+
+	// Role-scoped to worker roles: backend counts, cto does not.
+	w = doAPI(r, "GET", "/workload/active?roles=backend,frontend,qa", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if got := decodeJSON(t, w)["count"]; got != float64(1) {
+		t.Errorf("worker-scoped count = %v, want 1", got)
+	}
+}
+
 // --- Project API Tests ---
 
 func TestAPIGetProjects(t *testing.T) {
